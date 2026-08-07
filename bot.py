@@ -1,204 +1,210 @@
-import asyncio
-
-from aiogram import Bot, Dispatcher, types
-from aiogram.filters import Command
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-
-from config import BOT_TOKEN, ADMIN_ID
-
-from database import (
-    init_db,
-    add_user,
-    update_activity,
-    add_usage
-)
-
-from tools.caption import create_caption
-from tools.ads import create_ad
-from tools.customer_reply import create_customer_reply
-
-from admin.statistics import get_statistics
+import sqlite3
+from datetime import datetime
 
 
-bot = Bot(token=BOT_TOKEN)
+DB_NAME = "vista.db"
 
-dp = Dispatcher()
+
+def connect():
+    return sqlite3.connect(DB_NAME)
 
 
 
-keyboard = ReplyKeyboardMarkup(
-    keyboard=[
-        [
-            KeyboardButton(text="📝 ساخت کپشن"),
-            KeyboardButton(text="🔥 متن تبلیغ")
-        ],
-        [
-            KeyboardButton(text="💬 پاسخ مشتری")
-        ],
-        [
-            KeyboardButton(text="📊 آمار")
-        ]
-    ],
-    resize_keyboard=True
-)
+def init_db():
+
+    conn = connect()
+    cursor = conn.cursor()
+
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS users(
+
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+        telegram_id INTEGER UNIQUE,
+
+        username TEXT,
+
+        join_date TEXT,
+
+        last_activity TEXT,
+
+        plan TEXT DEFAULT 'FREE',
+
+        expire_date TEXT,
+
+        daily_usage INTEGER DEFAULT 0,
+
+        last_reset TEXT
+
+    )
+    """)
 
 
 
-@dp.message(Command("start"))
-async def start(message: types.Message):
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS purchases(
 
-    add_user(
-        message.from_user.id,
-        message.from_user.username
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+        telegram_id INTEGER,
+
+        package TEXT,
+
+        price INTEGER,
+
+        purchase_date TEXT
+
+    )
+    """)
+
+
+
+    conn.commit()
+    conn.close()
+
+
+
+def add_user(telegram_id, username):
+
+    conn = connect()
+    cursor = conn.cursor()
+
+
+    cursor.execute("""
+    INSERT OR IGNORE INTO users
+    (
+    telegram_id,
+    username,
+    join_date,
+    last_activity,
+    last_reset
     )
 
+    VALUES(?,?,?,?,?)
+    """,
 
-    await message.answer(
-        """
-سلام 👋
+    (
+        telegram_id,
+        username,
+        str(datetime.now()),
+        str(datetime.now()),
+        str(datetime.now())
+    ))
 
-به Vista AI Tools خوش آمدید 🤖
 
-ابزارهای هوشمند فروش:
-
-📝 ساخت کپشن محصول
-🔥 ساخت متن تبلیغ
-💬 پاسخ حرفه‌ای مشتری
-
-یک گزینه را انتخاب کنید:
-        """,
-        reply_markup=keyboard
-    )
+    conn.commit()
+    conn.close()
 
 
 
-@dp.message()
-async def handler(message: types.Message):
+def update_activity(telegram_id):
 
-    user_id = message.from_user.id
+    conn = connect()
+    cursor = conn.cursor()
 
-    update_activity(user_id)
+    cursor.execute("""
+    UPDATE users
+    SET last_activity=?
+    WHERE telegram_id=?
+    """,
+
+    (str(datetime.now()), telegram_id))
 
 
-
-    # بخش آمار ادمین
-
-    if message.text == "📊 آمار":
-
-        if user_id == ADMIN_ID:
-
-            await message.answer(
-                get_statistics()
-            )
-
-        else:
-
-            await message.answer(
-                "❌ این بخش فقط برای مدیر است."
-            )
-
-        return
+    conn.commit()
+    conn.close()
 
 
 
-    # کپشن
+def get_user(telegram_id):
 
-    if message.text == "📝 ساخت کپشن":
-
-        await message.answer(
-            """
-اطلاعات محصول را این شکل بفرست:
-
-نام محصول:
-ویژگی‌ها:
-مخاطب:
-            """
-        )
-
-        return
+    conn = connect()
+    cursor = conn.cursor()
 
 
+    cursor.execute("""
+    SELECT *
+    FROM users
+    WHERE telegram_id=?
+    """,
 
-    # تبلیغ
+    (telegram_id,))
 
-    if message.text == "🔥 متن تبلیغ":
 
-        await message.answer(
-            """
-اطلاعات تبلیغ را این شکل بفرست:
+    user = cursor.fetchone()
 
-محصول:
-مخاطب:
-مزیت اصلی:
-            """
-        )
+    conn.close()
 
-        return
+    return user
 
 
 
-    # پاسخ مشتری
+def increase_usage(telegram_id):
 
-    if message.text == "💬 پاسخ مشتری":
-
-        await message.answer(
-            "پیام مشتری را ارسال کن:"
-        )
-
-        return
+    conn = connect()
+    cursor = conn.cursor()
 
 
+    cursor.execute("""
+    UPDATE users
+    SET daily_usage=daily_usage+1
+    WHERE telegram_id=?
+    """,
 
-    # تولید خروجی ساده
-
-    text = message.text
-
-
-    if "محصول:" in text:
-
-        add_usage(
-            user_id,
-            "ads"
-        )
+    (telegram_id,))
 
 
-        await message.answer(
-            create_ad(
-                text,
-                "مشتریان",
-                "کیفیت بالا"
-            )
-        )
-
-
-    else:
-
-        add_usage(
-            user_id,
-            "caption"
-        )
-
-
-        await message.answer(
-            create_caption(
-                text,
-                "کیفیت عالی",
-                "مشتریان"
-            )
-        )
+    conn.commit()
+    conn.close()
 
 
 
-async def main():
+def reset_usage(telegram_id):
 
-    init_db()
-
-    print("Vista AI Tools Started ✅")
-
-    await dp.start_polling(bot)
+    conn = connect()
+    cursor = conn.cursor()
 
 
+    cursor.execute("""
+    UPDATE users
+    SET daily_usage=0,
+    last_reset=?
 
-if __name__ == "__main__":
+    WHERE telegram_id=?
+    """,
 
-    asyncio.run(main())
+    (
+        str(datetime.now()),
+        telegram_id
+    ))
+
+
+    conn.commit()
+    conn.close()
+
+
+
+def set_vip(telegram_id, expire_date):
+
+    conn = connect()
+    cursor = conn.cursor()
+
+
+    cursor.execute("""
+    UPDATE users
+
+    SET plan='VIP',
+    expire_date=?
+
+    WHERE telegram_id=?
+    """,
+
+    (
+        expire_date,
+        telegram_id
+    ))
+
+
+    conn.commit()
+    conn.close()
