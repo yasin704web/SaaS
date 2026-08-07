@@ -21,6 +21,7 @@ from tools.customer_reply import create_customer_reply
 from admin.statistics import get_statistics
 
 
+
 bot = Bot(token=BOT_TOKEN)
 
 dp = Dispatcher()
@@ -53,7 +54,6 @@ async def start(message: types.Message):
         message.from_user.username
     )
 
-
     await message.answer(
         """
 سلام 👋
@@ -63,10 +63,10 @@ async def start(message: types.Message):
 ابزارهای هوشمند:
 
 📝 ساخت کپشن
-🔥 ساخت متن تبلیغ
+🔥 متن تبلیغ
 💬 پاسخ مشتری
 
-یک گزینه را انتخاب کنید:
+یک گزینه را انتخاب کن:
         """,
         reply_markup=keyboard
     )
@@ -74,7 +74,7 @@ async def start(message: types.Message):
 
 
 @dp.message()
-async def handler(message: types.Message):
+async def messages(message: types.Message):
 
     user_id = message.from_user.id
 
@@ -85,7 +85,7 @@ async def handler(message: types.Message):
 
     # آمار ادمین
 
-    if message.text == "📊 آمار":
+    if message.text in ["📊 آمار", "آمار"]:
 
         if user_id == ADMIN_ID:
 
@@ -96,36 +96,36 @@ async def handler(message: types.Message):
         else:
 
             await message.answer(
-                "❌ این بخش فقط برای مدیر است."
+                "❌ دسترسی ندارید."
             )
 
         return
 
 
 
-    # بررسی اشتراک
+    # بررسی محدودیت
 
-    allowed, status = check_access(user_id)
+    allowed, result = check_access(user_id)
 
 
     if not allowed:
 
-        await message.answer(status)
+        await message.answer(result)
 
         return
 
 
 
-    # ساخت کپشن
+    # کپشن
 
     if message.text == "📝 ساخت کپشن":
 
         await message.answer(
             """
-اطلاعات محصول را بفرست:
+اطلاعات محصول را ارسال کن:
 
 نام محصول:
-ویژگی‌ها:
+ویژگی:
 مخاطب:
             """
         )
@@ -168,18 +168,17 @@ async def handler(message: types.Message):
 
 
 
-    # اگر پیام مربوط به تبلیغ باشد
+    # تبلیغ
 
     if "محصول:" in text:
 
-        result = create_ad(
+        answer = create_ad(
             text,
             "مشتریان",
             "کیفیت بالا"
         )
 
-
-        await message.answer(result)
+        await message.answer(answer)
 
         return
 
@@ -187,11 +186,17 @@ async def handler(message: types.Message):
 
     # پاسخ مشتری
 
-    if "قیمت" in text or "موجود" in text:
+    if (
+        "قیمت" in text
+        or
+        "موجود" in text
+        or
+        "تخفیف" in text
+    ):
 
-        result = create_customer_reply(text)
+        answer = create_customer_reply(text)
 
-        await message.answer(result)
+        await message.answer(answer)
 
         return
 
@@ -199,14 +204,14 @@ async def handler(message: types.Message):
 
     # کپشن پیش فرض
 
-    result = create_caption(
+    answer = create_caption(
         text,
         "کیفیت عالی",
         "مشتریان"
     )
 
 
-    await message.answer(result)
+    await message.answer(answer)
 
 
 
@@ -214,9 +219,21 @@ async def handler(message: types.Message):
 
 async def main():
 
+    print("Starting Vista AI Tools...")
+
     init_db()
 
-    print("Vista AI Tools Started ✅")
+    print("Database OK")
+
+    print("Bot is running ✅")
 
 
-   
+    await dp.start_polling(bot)
+
+
+
+
+
+if __name__ == "__main__":
+
+    asyncio.run(main())
