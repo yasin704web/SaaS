@@ -1,8 +1,7 @@
 import os
-from dotenv import load_dotenv
 
-load_dotenv()
+TOKEN = os.getenv("TOKEN")
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+CARD_NUMBER = os.getenv("CARD_NUMBER", "6037-xxxx-xxxx-xxxx")
 
-ADMIN_ID = int(os.getenv("ADMIN_ID"))
+ADMIN_ID = int(os.getenv("ADMIN_ID", "123456789"))
