@@ -1,7 +1,10 @@
 import os
 
-TOKEN = os.getenv("TOKEN")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-CARD_NUMBER = os.getenv("CARD_NUMBER", "6037-xxxx-xxxx-xxxx")
+ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 
-ADMIN_ID = int(os.getenv("ADMIN_ID", "123456789"))
+CARD_NUMBER = os.getenv(
+    "CARD_NUMBER",
+    "شماره کارت تنظیم نشده"
+)
