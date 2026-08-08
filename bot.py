@@ -1,239 +1,116 @@
-import asyncio
+from telegram import Update, ReplyKeyboardMarkup
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
 
-from aiogram import Bot, Dispatcher, types
-from aiogram.filters import Command
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-
-from config import BOT_TOKEN, ADMIN_ID
-
-from database import (
-    init_db,
-    add_user,
-    update_activity
-)
-
-from subscription import check_access
-
-from tools.caption import create_caption
-from tools.ads import create_ad
-from tools.customer_reply import create_customer_reply
-
-from admin.statistics import get_statistics
+from config import TOKEN, CARD_NUMBER, ADMIN_ID
+from vip import activate_vip
 
 
+# ================= START =================
+def start(update: Update, context: CallbackContext):
+    keyboard = [
+        ["🛠 ابزارها"],
+        ["👑 خرید VIP"]
+    ]
 
-bot = Bot(token=BOT_TOKEN)
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
-dp = Dispatcher()
-
-
-
-keyboard = ReplyKeyboardMarkup(
-    keyboard=[
-        [
-            KeyboardButton(text="📝 ساخت کپشن"),
-            KeyboardButton(text="🔥 متن تبلیغ")
-        ],
-        [
-            KeyboardButton(text="💬 پاسخ مشتری")
-        ],
-        [
-            KeyboardButton(text="📊 آمار")
-        ]
-    ],
-    resize_keyboard=True
-)
-
-
-
-@dp.message(Command("start"))
-async def start(message: types.Message):
-
-    add_user(
-        message.from_user.id,
-        message.from_user.username
-    )
-
-    await message.answer(
-        """
-سلام 👋
-
-به Vista AI Tools خوش آمدید 🤖
-
-ابزارهای هوشمند:
-
-📝 ساخت کپشن
-🔥 متن تبلیغ
-💬 پاسخ مشتری
-
-یک گزینه را انتخاب کن:
-        """,
-        reply_markup=keyboard
+    update.message.reply_text(
+        "به Vista AI Tools خوش اومدی 👋",
+        reply_markup=reply_markup
     )
 
 
+# ================= BUY VIP =================
+def buy_vip(update: Update, context: CallbackContext):
+    text = f"""
+👑 اشتراک VIP یک ماهه
 
-@dp.message()
-async def messages(message: types.Message):
+💰 قیمت: (اینجا قیمت رو بنویس)
 
-    user_id = message.from_user.id
+💳 شماره کارت:
+{CARD_NUMBER}
+
+📸 بعد از پرداخت، عکس رسید رو ارسال کن.
+"""
+    update.message.reply_text(text)
 
 
-    update_activity(user_id)
+# ================= HANDLE TEXT =================
+def handle_text(update: Update, context: CallbackContext):
+    text = update.message.text
+
+    if text == "👑 خرید VIP":
+        buy_vip(update, context)
+    else:
+        update.message.reply_text("دستور نامعتبر")
 
 
+# ================= HANDLE RECEIPT =================
+def handle_receipt(update: Update, context: CallbackContext):
+    if update.message.photo:
+        user = update.message.from_user
+        photo = update.message.photo[-1].file_id
 
-    # آمار ادمین
+        caption = f"""
+💳 درخواست VIP جدید
 
-    if message.text in ["📊 آمار", "آمار"]:
+👤 یوزرنیم:
+@{user.username}
 
-        if user_id == ADMIN_ID:
+🆔:
+{user.id}
+"""
 
-            await message.answer(
-                get_statistics()
+        # ارسال به ادمین
+        context.bot.send_photo(
+            chat_id=ADMIN_ID,
+            photo=photo,
+            caption=caption
+        )
+
+        update.message.reply_text(
+            "✅ رسید ارسال شد. بعد از بررسی VIP فعال می‌شود."
+        )
+
+
+# ================= ADMIN VIP COMMAND =================
+def vip_command(update: Update, context: CallbackContext):
+    if update.message.from_user.id != ADMIN_ID:
+        return
+
+    try:
+        user_id = int(context.args[0])
+
+        success, expire = activate_vip(user_id)
+
+        if success:
+            update.message.reply_text("✅ VIP فعال شد")
+
+            context.bot.send_message(
+                chat_id=user_id,
+                text=f"🎉 VIP شما فعال شد تا:\n{expire}"
             )
-
         else:
+            update.message.reply_text("❌ کاربر پیدا نشد")
 
-            await message.answer(
-                "❌ دسترسی ندارید."
-            )
+    except:
+        update.message.reply_text("❌ فرمت اشتباه. مثال:\n/vip 123456789")
 
-        return
 
+# ================= MAIN =================
+def main():
+    updater = Updater(TOKEN, use_context=True)
+    dp = updater.dispatcher
 
+    dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(CommandHandler("vip", vip_command))
 
-    # بررسی محدودیت
+    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_text))
+    dp.add_handler(MessageHandler(Filters.photo, handle_receipt))
 
-    allowed, result = check_access(user_id)
-
-
-    if not allowed:
-
-        await message.answer(result)
-
-        return
-
-
-
-    # کپشن
-
-    if message.text == "📝 ساخت کپشن":
-
-        await message.answer(
-            """
-اطلاعات محصول را ارسال کن:
-
-نام محصول:
-ویژگی:
-مخاطب:
-            """
-        )
-
-        return
-
-
-
-    # تبلیغ
-
-    if message.text == "🔥 متن تبلیغ":
-
-        await message.answer(
-            """
-اطلاعات تبلیغ:
-
-محصول:
-مخاطب:
-مزیت:
-            """
-        )
-
-        return
-
-
-
-    # پاسخ مشتری
-
-    if message.text == "💬 پاسخ مشتری":
-
-        await message.answer(
-            "پیام مشتری را ارسال کن:"
-        )
-
-        return
-
-
-
-    text = message.text
-
-
-
-    # تبلیغ
-
-    if "محصول:" in text:
-
-        answer = create_ad(
-            text,
-            "مشتریان",
-            "کیفیت بالا"
-        )
-
-        await message.answer(answer)
-
-        return
-
-
-
-    # پاسخ مشتری
-
-    if (
-        "قیمت" in text
-        or
-        "موجود" in text
-        or
-        "تخفیف" in text
-    ):
-
-        answer = create_customer_reply(text)
-
-        await message.answer(answer)
-
-        return
-
-
-
-    # کپشن پیش فرض
-
-    answer = create_caption(
-        text,
-        "کیفیت عالی",
-        "مشتریان"
-    )
-
-
-    await message.answer(answer)
-
-
-
-
-
-async def main():
-
-    print("Starting Vista AI Tools...")
-
-    init_db()
-
-    print("Database OK")
-
-    print("Bot is running ✅")
-
-
-    await dp.start_polling(bot)
-
-
-
+    updater.start_polling()
+    updater.idle()
 
 
 if __name__ == "__main__":
-
-    asyncio.run(main())
+    main()
