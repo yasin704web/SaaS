@@ -1,15 +1,23 @@
 import asyncio
 import logging
+import os
+import re
+from datetime import datetime
 
 from aiogram import Bot, Dispatcher, F
-from aiogram.filters import Command
+from aiogram.enums import ParseMode
+from aiogram.filters import Command, StateFilter
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
     Message,
-    ReplyKeyboardMarkup,
-    KeyboardButton,
+    CallbackQuery,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
 )
+from aiogram.client.default import DefaultBotProperties
 
-from config import BOT_TOKEN, ADMIN_ID, CARD_NUMBER
+from config import BOT_TOKEN, ADMIN_ID
 
 from database import (
     init_db,
@@ -19,416 +27,848 @@ from database import (
     count_users,
     count_purchases,
     total_income,
-    add_purchase,
 )
 
 from subscription import check_access
-from vip import activate_vip
 
 
-# =========================
-# تنظیمات
-# =========================
+# =========================================================
+# SETTINGS
+# =========================================================
 
-VIP_PRICE = 150000
+CHANNEL_1 = os.getenv("CHANNEL_1", "")
+CHANNEL_2 = os.getenv("CHANNEL_2", "")
+
+CHANNEL_LINK_1 = os.getenv("CHANNEL_LINK_1", "")
+CHANNEL_LINK_2 = os.getenv("CHANNEL_LINK_2", "")
+
+VIP_PRICE = os.getenv("VIP_PRICE", "199000")
+
+FREE_LIMIT_TEXT = "محدودیت روزانه بر اساس پلن فعلی شما اعمال می‌شود."
 
 logging.basicConfig(level=logging.INFO)
 
-bot = Bot(token=BOT_TOKEN)
+
+# =========================================================
+# BOT
+# =========================================================
+
+bot = Bot(
+    token=BOT_TOKEN,
+    default=DefaultBotProperties(
+        parse_mode=ParseMode.HTML
+    )
+)
+
 dp = Dispatcher()
 
 
-# =========================
-# منوی اصلی
-# =========================
+# =========================================================
+# STATES
+# =========================================================
 
-main_keyboard = ReplyKeyboardMarkup(
-    keyboard=[
-        [
-            KeyboardButton(text="👑 خرید VIP"),
-            KeyboardButton(text="👤 حساب من"),
-        ],
-        [
-            KeyboardButton(text="🛠 ابزارها"),
-        ],
-    ],
-    resize_keyboard=True,
-)
+class ToolState(StatesGroup):
 
-
-# =========================
-# START
-# =========================
-
-@dp.message(Command("start"))
-async def start_handler(message: Message):
-
-    user = message.from_user
-
-    add_user(
-        telegram_id=user.id,
-        username=user.username
-    )
-
-    update_activity(user.id)
-
-    await message.answer(
-        f"""
-سلام {user.first_name} 👋
-
-به Vista AI Tools خوش آمدی.
-
-🤖 مجموعه ابزارهای هوشمند
-👑 اشتراک VIP
-🆓 استفاده رایگان محدود
-
-از منوی پایین انتخاب کن.
-""",
-        reply_markup=main_keyboard
-    )
+    waiting_caption = State()
+    waiting_video_caption = State()
+    waiting_comment = State()
+    waiting_reply = State()
+    waiting_bio = State()
+    waiting_hashtag = State()
+    waiting_title = State()
+    waiting_post_idea = State()
+    waiting_ad = State()
+    waiting_announcement = State()
+    waiting_rewrite = State()
+    waiting_summary = State()
+    waiting_content_plan = State()
+    waiting_product_text = State()
+    waiting_poll = State()
 
 
-# =========================
-# خرید VIP
-# =========================
+# =========================================================
+# KEYBOARDS
+# =========================================================
 
-@dp.message(F.text == "👑 خرید VIP")
-async def buy_vip_handler(message: Message):
+def main_menu():
 
-    await message.answer(
-        f"""
-👑 اشتراک VIP Vista
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
 
-⏱ مدت: ۳۰ روز
-💰 قیمت: {VIP_PRICE:,} تومان
+            [
+                InlineKeyboardButton(
+                    text="🛠 ابزارها",
+                    callback_data="tools"
+                )
+            ],
 
-💳 شماره کارت:
+            [
+                InlineKeyboardButton(
+                    text="⭐ خرید VIP",
+                    callback_data="vip"
+                ),
+                InlineKeyboardButton(
+                    text="👤 حساب من",
+                    callback_data="account"
+                )
+            ],
 
-{CARD_NUMBER}
+            [
+                InlineKeyboardButton(
+                    text="📚 راهنما",
+                    callback_data="help"
+                )
+            ]
 
-━━━━━━━━━━━━━━
-
-بعد از واریز، عکس رسید پرداخت را همینجا ارسال کن.
-
-📌 پس از بررسی رسید، VIP توسط ادمین فعال می‌شود.
-""",
+        ]
     )
 
 
-# =========================
-# دریافت رسید
-# =========================
+def tools_menu():
 
-@dp.message(F.photo)
-async def receipt_handler(message: Message):
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
 
-    user = message.from_user
+            [
+                InlineKeyboardButton(
+                    text="📢 ابزارهای کانال",
+                    callback_data="channel_tools"
+                )
+            ],
 
-    username = (
-        f"@{user.username}"
-        if user.username
-        else "ندارد"
-    )
+            [
+                InlineKeyboardButton(
+                    text="👥 ابزارهای گروه",
+                    callback_data="group_tools"
+                )
+            ],
 
-    caption = f"""
-🔔 درخواست خرید VIP
+            [
+                InlineKeyboardButton(
+                    text="👤 ابزارهای پیج شخصی",
+                    callback_data="profile_tools"
+                )
+            ],
 
-👤 نام:
-{user.full_name}
+            [
+                InlineKeyboardButton(
+                    text="✍️ ابزارهای متن",
+                    callback_data="text_tools"
+                )
+            ],
 
-🆔 Telegram ID:
-{user.id}
+            [
+                InlineKeyboardButton(
+                    text="📅 برنامه محتوا",
+                    callback_data="content_tools"
+                )
+            ],
 
-👤 Username:
-{username}
+            [
+                InlineKeyboardButton(
+                    text="🔙 بازگشت",
+                    callback_data="back_main"
+                )
+            ]
 
-💰 مبلغ:
-{VIP_PRICE:,} تومان
-
-📦 اشتراک:
-VIP - 30 روز
-
-━━━━━━━━━━━━━━
-
-برای فعال‌سازی:
-
-/vip {user.id}
-"""
-
-    await bot.send_photo(
-        chat_id=ADMIN_ID,
-        photo=message.photo[-1].file_id,
-        caption=caption
-    )
-
-    await message.answer(
-        """
-✅ رسید شما برای ادمین ارسال شد.
-
-بعد از بررسی پرداخت، اشتراک VIP شما فعال خواهد شد.
-"""
+        ]
     )
 
 
-# =========================
-# حساب کاربری
-# =========================
+def channel_tools_menu():
 
-@dp.message(F.text == "👤 حساب من")
-async def account_handler(message: Message):
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
 
-    user_id = message.from_user.id
+            [
+                InlineKeyboardButton(
+                    text="✍️ کپشن پست",
+                    callback_data="tool_caption"
+                ),
+                InlineKeyboardButton(
+                    text="🎬 کپشن ویدیو",
+                    callback_data="tool_video_caption"
+                )
+            ],
 
-    user = get_user(user_id)
+            [
+                InlineKeyboardButton(
+                    text="💡 ایده پست",
+                    callback_data="tool_post_idea"
+                ),
+                InlineKeyboardButton(
+                    text="🏷 هشتگ ساز",
+                    callback_data="tool_hashtag"
+                )
+            ],
 
-    if not user:
-        add_user(
-            user_id,
-            message.from_user.username
-        )
+            [
+                InlineKeyboardButton(
+                    text="📰 عنوان پست",
+                    callback_data="tool_title"
+                ),
+                InlineKeyboardButton(
+                    text="📢 متن تبلیغ",
+                    callback_data="tool_ad"
+                )
+            ],
 
-        user = get_user(user_id)
+            [
+                InlineKeyboardButton(
+                    text="📌 اطلاعیه",
+                    callback_data="tool_announcement"
+                )
+            ],
 
-    plan = user[5]
-    expire_date = user[6]
-    daily_usage = user[7]
+            [
+                InlineKeyboardButton(
+                    text="🔙 بازگشت",
+                    callback_data="tools"
+                )
+            ]
 
-    if plan == "VIP":
-
-        await message.answer(
-            f"""
-👑 حساب کاربری
-
-پلن: VIP
-
-📅 تاریخ پایان:
-{expire_date}
-
-♾️ محدودیت:
-ندارد
-"""
-        )
-
-    else:
-
-        await message.answer(
-            f"""
-👤 حساب کاربری
-
-پلن: FREE
-
-📊 استفاده امروز:
-{daily_usage}
-
-🔒 محدودیت روزانه:
-۵ استفاده
-
-برای استفاده بدون محدودیت، VIP تهیه کن.
-"""
-        )
-
-
-# =========================
-# ابزارها
-# =========================
-
-@dp.message(F.text == "🛠 ابزارها")
-async def tools_handler(message: Message):
-
-    user_id = message.from_user.id
-
-    add_user(
-        user_id,
-        message.from_user.username
-    )
-
-    allowed, result = check_access(user_id)
-
-    if not allowed:
-
-        await message.answer(result)
-
-        return
-
-    await message.answer(
-        """
-🛠 ابزارهای Vista
-
-فعلاً ابزارهای اصلی پروژه از همین بخش قابل استفاده هستند.
-
-🤖 ابزارهای بیشتر در نسخه‌های بعدی اضافه می‌شوند.
-"""
+        ]
     )
 
 
-# =========================
-# آمار ادمین
-# =========================
+def group_tools_menu():
 
-@dp.message(Command("آمار"))
-async def statistics_handler(message: Message):
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
 
-    if message.from_user.id != ADMIN_ID:
-        return
+            [
+                InlineKeyboardButton(
+                    text="💬 ساخت کامنت",
+                    callback_data="tool_comment"
+                )
+            ],
 
-    users = count_users()
-    purchases = count_purchases()
-    income = total_income()
+            [
+                InlineKeyboardButton(
+                    text="🗣 پاسخ به کاربر",
+                    callback_data="tool_reply"
+                )
+            ],
 
-    await message.answer(
-        f"""
-📊 آمار Vista AI Tools
+            [
+                InlineKeyboardButton(
+                    text="📢 اطلاعیه گروه",
+                    callback_data="tool_announcement"
+                )
+            ],
 
-👥 کل کاربران:
-{users}
+            [
+                InlineKeyboardButton(
+                    text="📊 نظرسنجی",
+                    callback_data="tool_poll"
+                )
+            ],
 
-🛒 تعداد خریدها:
-{purchases}
+            [
+                InlineKeyboardButton(
+                    text="❓ FAQ",
+                    callback_data="tool_faq"
+                )
+            ],
 
-💰 درآمد ثبت‌شده:
-{income:,} تومان
-"""
+            [
+                InlineKeyboardButton(
+                    text="🔙 بازگشت",
+                    callback_data="tools"
+                )
+            ]
+
+        ]
     )
 
 
-# =========================
-# فعال کردن VIP
-# =========================
+def profile_tools_menu():
 
-@dp.message(Command("vip"))
-async def activate_vip_handler(message: Message):
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
 
-    if message.from_user.id != ADMIN_ID:
+            [
+                InlineKeyboardButton(
+                    text="👤 ساخت Bio",
+                    callback_data="tool_bio"
+                )
+            ],
 
-        await message.answer(
-            "⛔ شما اجازه استفاده از این دستور را ندارید."
-        )
+            [
+                InlineKeyboardButton(
+                    text="📸 کپشن عکس",
+                    callback_data="tool_caption"
+                )
+            ],
 
-        return
+            [
+                InlineKeyboardButton(
+                    text="🎬 کپشن ویدیو",
+                    callback_data="tool_video_caption"
+                )
+            ],
 
-    parts = message.text.split()
+            [
+                InlineKeyboardButton(
+                    text="💡 ایده محتوا",
+                    callback_data="tool_post_idea"
+                )
+            ],
 
-    if len(parts) != 2:
+            [
+                InlineKeyboardButton(
+                    text="🏷 هشتگ",
+                    callback_data="tool_hashtag"
+                )
+            ],
 
-        await message.answer(
-            """
-❌ فرمت دستور اشتباه است.
+            [
+                InlineKeyboardButton(
+                    text="🔙 بازگشت",
+                    callback_data="tools"
+                )
+            ]
 
-مثال:
+        ]
+    )
 
-/vip 123456789
-"""
-        )
 
-        return
+def text_tools_menu():
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+
+            [
+                InlineKeyboardButton(
+                    text="✏️ بازنویسی متن",
+                    callback_data="tool_rewrite"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text="📋 خلاصه‌سازی",
+                    callback_data="tool_summary"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text="📰 عنوان‌سازی",
+                    callback_data="tool_title"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text="🏷 هشتگ‌سازی",
+                    callback_data="tool_hashtag"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text="🛍 متن محصول",
+                    callback_data="tool_product"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text="🔙 بازگشت",
+                    callback_data="tools"
+                )
+            ]
+
+        ]
+    )
+
+
+def content_tools_menu():
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+
+            [
+                InlineKeyboardButton(
+                    text="📅 برنامه ۷ روزه",
+                    callback_data="tool_plan"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text="💡 ایده‌های محتوا",
+                    callback_data="tool_post_idea"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text="🎯 عنوان جذاب",
+                    callback_data="tool_title"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text="🔙 بازگشت",
+                    callback_data="tools"
+                )
+            ]
+
+        ]
+    )
+
+
+# =========================================================
+# REQUIRED CHANNELS
+# =========================================================
+
+async def is_member(channel, user_id):
+
+    if not channel:
+        return True
 
     try:
-        user_id = int(parts[1])
 
-    except ValueError:
-
-        await message.answer(
-            "❌ Telegram ID باید عدد باشد."
+        member = await bot.get_chat_member(
+            chat_id=channel,
+            user_id=user_id
         )
 
-        return
-
-    user = get_user(user_id)
-
-    if not user:
-
-        await message.answer(
-            "❌ این کاربر هنوز ربات را Start نکرده است."
-        )
-
-        return
-
-    success, result = activate_vip(user_id)
-
-    if not success:
-
-        await message.answer(result)
-
-        return
-
-    expire_date = result
-
-    # ثبت خرید در دیتابیس
-    add_purchase(
-        telegram_id=user_id,
-        package="VIP 30 Days",
-        price=VIP_PRICE
-    )
-
-    await message.answer(
-        f"""
-✅ VIP فعال شد.
-
-🆔 کاربر:
-{user_id}
-
-👑 پلن:
-VIP
-
-⏱ مدت:
-۳۰ روز
-
-📅 تاریخ پایان:
-{expire_date}
-
-💰 مبلغ ثبت‌شده:
-{VIP_PRICE:,} تومان
-"""
-    )
-
-    try:
-
-        await bot.send_message(
-            chat_id=user_id,
-            text=f"""
-🎉 اشتراک VIP شما فعال شد!
-
-👑 پلن: VIP
-⏱ مدت: ۳۰ روز
-
-📅 تاریخ پایان:
-{expire_date}
-
-♾️ محدودیت استفاده:
-ندارید
-
-از Vista AI Tools لذت ببرید 🚀
-"""
+        return member.status in (
+            "member",
+            "administrator",
+            "creator"
         )
 
     except Exception as e:
 
         logging.warning(
-            f"Could not notify user {user_id}: {e}"
+            f"Channel check failed: {channel} | {e}"
         )
 
+        return False
 
-# =========================
-# اجرای ربات
-# =========================
 
-async def main():
+async def check_channels(user_id):
 
-    init_db()
+    first = await is_member(
+        CHANNEL_1,
+        user_id
+    )
 
-    print("🔥 VISTA VERSION 7.0 RUNNING 🔥")
+    second = await is_member(
+        CHANNEL_2,
+        user_id
+    )
 
-    await dp.start_polling(
-        bot,
-        allowed_updates=dp.resolve_used_update_types()
+    return first and second
+
+
+def join_keyboard():
+
+    buttons = []
+
+    if CHANNEL_LINK_1:
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    text="📢 عضویت کانال اول",
+                    url=CHANNEL_LINK_1
+                )
+            ]
+        )
+
+    if CHANNEL_LINK_2:
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    text="📢 عضویت کانال دوم",
+                    url=CHANNEL_LINK_2
+                )
+            ]
+        )
+
+    buttons.append(
+        [
+            InlineKeyboardButton(
+                text="✅ بررسی عضویت",
+                callback_data="check_join"
+            )
+        ]
+    )
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=buttons
     )
 
 
-if __name__ == "__main__":
+async def require_access(message: Message):
 
-    try:
-        asyncio.run(main())
+    user_id = message.from_user.id
 
-    except KeyboardInterrupt:
+    if not await check_channels(user_id):
 
-        print("Bot stopped.")
+        await message.answer(
+            "🔐 <b>قبل از استفاده از SaaS</b>\n\n"
+            "برای استفاده از ربات ابتدا باید در "
+            "هر دو کانال عضو شوید.\n\n"
+            "بعد از عضویت روی «بررسی عضویت» بزنید.",
+            reply_markup=join_keyboard()
+        )
+
+        return False
+
+    allowed, result = check_access(user_id)
+
+    if not allowed:
+
+        await message.answer(
+            result
+        )
+
+        return False
+
+    return True
+
+
+# =========================================================
+# START
+# =========================================================
+
+@dp.message(Command("start"))
+async def start(message: Message, state: FSMContext):
+
+    await state.clear()
+
+    user = message.from_user
+
+    add_user(
+        user.id,
+        user.username or ""
+    )
+
+    update_activity(
+        user.id
+    )
+
+    if not await check_channels(user.id):
+
+        await message.answer(
+            "🚀 <b>به SaaS خوش آمدی!</b>\n\n"
+            "برای شروع باید ابتدا عضو دو کانال ما شوی.\n\n"
+            "بعد از عضویت روی «بررسی عضویت» بزن.",
+            reply_markup=join_keyboard()
+        )
+
+        return
+
+    await message.answer(
+        "🧠 <b>SaaS</b>\n\n"
+        "دستیار مدیریت و تولید محتوای تو آماده است.\n\n"
+        "🛠 ابزارهای تولید محتوا\n"
+        "📢 ابزارهای کانال\n"
+        "👥 ابزارهای گروه\n"
+        "👤 ابزارهای پیج\n"
+        "📅 برنامه‌ریزی محتوا\n\n"
+        "یک بخش را انتخاب کن:",
+        reply_markup=main_menu()
+    )
+
+
+# =========================================================
+# JOIN CHECK
+# =========================================================
+
+@dp.callback_query(F.data == "check_join")
+async def check_join(callback: CallbackQuery):
+
+    user_id = callback.from_user.id
+
+    if not await check_channels(user_id):
+
+        await callback.answer(
+            "❌ هنوز در هر دو کانال عضو نشده‌ای.",
+            show_alert=True
+        )
+
+        return
+
+    await callback.message.edit_text(
+        "✅ عضویت تأیید شد!\n\n"
+        "به SaaS خوش آمدی 🧠",
+        reply_markup=main_menu()
+    )
+
+    await callback.answer(
+        "عضویت تأیید شد ✅"
+    )
+
+
+# =========================================================
+# MAIN CALLBACKS
+# =========================================================
+
+@dp.callback_query(F.data == "tools")
+async def tools_callback(callback: CallbackQuery):
+
+    await callback.message.edit_text(
+        "🛠 <b>مرکز ابزارهای SaaS</b>\n\n"
+        "بخش موردنظر خودت را انتخاب کن:",
+        reply_markup=tools_menu()
+    )
+
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "channel_tools")
+async def channel_tools(callback: CallbackQuery):
+
+    await callback.message.edit_text(
+        "📢 <b>ابزارهای کانال</b>\n\n"
+        "ابزار موردنظر را انتخاب کن:",
+        reply_markup=channel_tools_menu()
+    )
+
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "group_tools")
+async def group_tools(callback: CallbackQuery):
+
+    await callback.message.edit_text(
+        "👥 <b>ابزارهای گروه</b>\n\n"
+        "ابزار موردنظر را انتخاب کن:",
+        reply_markup=group_tools_menu()
+    )
+
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "profile_tools")
+async def profile_tools(callback: CallbackQuery):
+
+    await callback.message.edit_text(
+        "👤 <b>ابزارهای پیج شخصی</b>\n\n"
+        "ابزار موردنظر را انتخاب کن:",
+        reply_markup=profile_tools_menu()
+    )
+
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "text_tools")
+async def text_tools(callback: CallbackQuery):
+
+    await callback.message.edit_text(
+        "✍️ <b>ابزارهای متن</b>\n\n"
+        "یکی از ابزارها را انتخاب کن:",
+        reply_markup=text_tools_menu()
+    )
+
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "content_tools")
+async def content_tools(callback: CallbackQuery):
+
+    await callback.message.edit_text(
+        "📅 <b>مرکز برنامه‌ریزی محتوا</b>\n\n"
+        "ابزار موردنظر را انتخاب کن:",
+        reply_markup=content_tools_menu()
+    )
+
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "back_main")
+async def back_main(callback: CallbackQuery):
+
+    await callback.message.edit_text(
+        "🧠 <b>SaaS</b>\n\n"
+        "یک بخش را انتخاب کن:",
+        reply_markup=main_menu()
+    )
+
+    await callback.answer()
+
+
+# =========================================================
+# VIP
+# =========================================================
+
+@dp.callback_query(F.data == "vip")
+async def vip_callback(callback: CallbackQuery):
+
+    await callback.message.edit_text(
+        "⭐ <b>VIP SaaS</b>\n\n"
+        f"💰 قیمت: <b>{VIP_PRICE}</b> تومان\n"
+        "⏳ مدت: <b>۳۰ روز</b>\n\n"
+        "مزایا:\n"
+        "• استفاده بیشتر از ابزارها\n"
+        "• دسترسی گسترده‌تر\n"
+        "• امکانات پیشرفته‌تر\n\n"
+        "برای خرید VIP با پشتیبانی ارتباط بگیر.",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="💬 ارتباط با پشتیبانی",
+                        url="https://t.me/"
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="🔙 بازگشت",
+                        callback_data="back_main"
+                    )
+                ]
+            ]
+        )
+    )
+
+    await callback.answer()
+
+
+# =========================================================
+# ACCOUNT
+# =========================================================
+
+@dp.callback_query(F.data == "account")
+async def account_callback(callback: CallbackQuery):
+
+    user = get_user(
+        callback.from_user.id
+    )
+
+    if not user:
+
+        await callback.answer(
+            "حساب پیدا نشد.",
+            show_alert=True
+        )
+
+        return
+
+    plan = user[5] if len(user) > 5 else "FREE"
+    expire = user[6] if len(user) > 6 else None
+    usage = user[7] if len(user) > 7 else 0
+
+    if plan == "VIP":
+
+        plan_text = "⭐ VIP"
+
+    else:
+
+        plan_text = "🆓 FREE"
+
+    text = (
+        "👤 <b>حساب من</b>\n\n"
+        f"🆔 شناسه: <code>{callback.from_user.id}</code>\n"
+        f"📦 پلن: <b>{plan_text}</b>\n"
+        f"📊 استفاده امروز: <b>{usage}</b>\n"
+    )
+
+    if expire:
+
+        text += (
+            f"⏳ انقضای VIP: <b>{expire}</b>\n"
+        )
+
+    await callback.message.edit_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="🔙 بازگشت",
+                        callback_data="back_main"
+                    )
+                ]
+            ]
+        )
+    )
+
+    await callback.answer()
+
+
+# =========================================================
+# HELP
+# =========================================================
+
+@dp.callback_query(F.data == "help")
+async def help_callback(callback: CallbackQuery):
+
+    await callback.message.edit_text(
+        "📚 <b>راهنمای SaaS</b>\n\n"
+        "1️⃣ وارد بخش ابزارها شو.\n"
+        "2️⃣ دسته موردنظر را انتخاب کن.\n"
+        "3️⃣ ابزار را انتخاب کن.\n"
+        "4️⃣ اطلاعات موردنظر را ارسال کن.\n"
+        "5️⃣ نتیجه را دریافت کن.\n\n"
+        "⭐ برای امکانات بیشتر می‌توانی VIP تهیه کنی.",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="🔙 بازگشت",
+                        callback_data="back_main"
+                    )
+                ]
+            ]
+        )
+    )
+
+    await callback.answer()
+
+
+# =========================================================
+# TOOL STARTERS
+# =========================================================
+
+async def start_tool(
+    callback: CallbackQuery,
+    state: FSMContext,
+    tool_name: str,
+    state_obj: State,
+    description: str
+):
+
+    allowed, result = check_access(
+        callback.from_user.id
+    )
+
+    if not allowed:
+
+        await callback.answer(
+            "⚠️ سهمیه استفاده شما تمام شده.",
+            show_alert=True
+        )
+
+        return
+
+    await state.set_state(
+        state_obj
+    )
+
+    await callback.message.edit_text(
+        f"🛠 <b>{tool_name}</b>\n\n"
+        f"{description}\n\n"
+        "📩 اطلاعاتت را در یک پیام بفرست.\n\n"
+        "برای لغو: /cancel"
+    )
+
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "tool_caption")
+async def tool_caption(callback: CallbackQuery, state: FSMContext):
+
+    await start_tool(
+        callback,
+        state,
+        "✍️ ساخت کپشن",
+        ToolState.waiting_caption,
+        "موضوع یا متن پستت را بفرست تا چند مدل کپشن مناسب برایت آماد
