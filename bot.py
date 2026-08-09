@@ -416,7 +416,7 @@ async def main():
 
     init_db()
 
-    print("Vista AI Tools is running...")
+    print("🔥 VISTA VERSION 7.0 RUNNING 🔥")
 
     await dp.start_polling(
         bot,
