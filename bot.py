@@ -871,4 +871,4 @@ async def tool_caption(callback: CallbackQuery, state: FSMContext):
         state,
         "✍️ ساخت کپشن",
         ToolState.waiting_caption,
-        "موضوع یا متن پستت را بفرست تا چند مدل کپشن مناسب برایت آماد
+        "موضوع یا متن پستت را بفرست تا چند مدل کپشن مناسب برایت آماده کنم"
