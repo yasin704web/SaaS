@@ -2,7 +2,7 @@ import asyncio
 import logging
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.enums import ParseMode
@@ -27,27 +27,42 @@ from database import (
     count_users,
     count_purchases,
     total_income,
+    set_vip,
+    add_purchase,
 )
 
 from subscription import check_access
 
 
 # =========================================================
-# SETTINGS
+# LOGGING
 # =========================================================
-
-CHANNEL_1 = os.getenv("CHANNEL_1", "")
-CHANNEL_2 = os.getenv("CHANNEL_2", "")
-
-CHANNEL_LINK_1 = os.getenv("CHANNEL_LINK_1", "")
-CHANNEL_LINK_2 = os.getenv("CHANNEL_LINK_2", "")
-
-VIP_PRICE = os.getenv("VIP_PRICE", "199000")
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s"
 )
+
+logger = logging.getLogger("SaaS")
+
+
+# =========================================================
+# SETTINGS
+# =========================================================
+
+CHANNEL_1 = os.getenv("CHANNEL_1", "").strip()
+CHANNEL_2 = os.getenv("CHANNEL_2", "").strip()
+
+CHANNEL_LINK_1 = os.getenv("CHANNEL_LINK_1", "").strip()
+CHANNEL_LINK_2 = os.getenv("CHANNEL_LINK_2", "").strip()
+
+VIP_PRICE = os.getenv("VIP_PRICE", "199000").strip()
+CARD_NUMBER = os.getenv("CARD_NUMBER", "").strip()
+
+SUPPORT_USERNAME = os.getenv(
+    "SUPPORT_USERNAME",
+    ""
+).strip().replace("@", "")
 
 
 # =========================================================
@@ -69,40 +84,67 @@ dp = Dispatcher()
 # =========================================================
 
 class ToolState(StatesGroup):
-    waiting_caption = State()
-    waiting_video_caption = State()
-    waiting_comment = State()
-    waiting_reply = State()
-    waiting_bio = State()
-    waiting_hashtag = State()
-    waiting_title = State()
-    waiting_post_idea = State()
-    waiting_ad = State()
-    waiting_announcement = State()
-    waiting_rewrite = State()
-    waiting_summary = State()
-    waiting_content_plan = State()
-    waiting_product_text = State()
-    waiting_poll = State()
-    waiting_faq = State()
+
+    caption = State()
+    video_caption = State()
+    comment = State()
+    reply = State()
+    bio = State()
+    hashtag = State()
+    title = State()
+    post_idea = State()
+    ad = State()
+    announcement = State()
+    rewrite = State()
+    summary = State()
+    plan = State()
+    product = State()
+    poll = State()
+    faq = State()
+
+    vip_payment = State()
 
 
 # =========================================================
-# BASIC KEYBOARDS
+# SAFE TEXT
 # =========================================================
 
-def back_tools_keyboard():
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="🔙 بازگشت به ابزارها",
-                    callback_data="tools"
-                )
-            ]
-        ]
+def clean_text(text: str, limit: int = 5000) -> str:
+    if not text:
+        return ""
+
+    text = text.strip()
+
+    if len(text) > limit:
+        text = text[:limit] + "..."
+
+    return text
+
+
+def escape_html(text: str) -> str:
+    if not text:
+        return ""
+
+    return (
+        text
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
     )
 
+
+def username_of(message: Message) -> str:
+    username = message.from_user.username
+
+    if username:
+        return f"@{username}"
+
+    return str(message.from_user.id)
+
+
+# =========================================================
+# KEYBOARDS
+# =========================================================
 
 def main_menu():
     return InlineKeyboardMarkup(
@@ -150,7 +192,7 @@ def tools_menu():
             ],
             [
                 InlineKeyboardButton(
-                    text="👤 ابزارهای پیج شخصی",
+                    text="👤 ابزارهای پیج",
                     callback_data="profile_tools"
                 )
             ],
@@ -168,7 +210,7 @@ def tools_menu():
             ],
             [
                 InlineKeyboardButton(
-                    text="🔙 بازگشت",
+                    text="🔙 منوی اصلی",
                     callback_data="back_main"
                 )
             ]
@@ -195,17 +237,17 @@ def channel_tools_menu():
                     callback_data="tool_post_idea"
                 ),
                 InlineKeyboardButton(
-                    text="🏷 هشتگ ساز",
+                    text="🏷 هشتگ",
                     callback_data="tool_hashtag"
                 )
             ],
             [
                 InlineKeyboardButton(
-                    text="📰 عنوان پست",
+                    text="📰 عنوان",
                     callback_data="tool_title"
                 ),
                 InlineKeyboardButton(
-                    text="📢 متن تبلیغ",
+                    text="📢 تبلیغ",
                     callback_data="tool_ad"
                 )
             ],
@@ -316,7 +358,7 @@ def text_tools_menu():
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="✏️ بازنویسی متن",
+                    text="✏️ بازنویسی",
                     callback_data="tool_rewrite"
                 )
             ],
@@ -365,7 +407,7 @@ def content_tools_menu():
             ],
             [
                 InlineKeyboardButton(
-                    text="💡 ایده‌های محتوا",
+                    text="💡 ایده محتوا",
                     callback_data="tool_post_idea"
                 )
             ],
@@ -385,15 +427,30 @@ def content_tools_menu():
     )
 
 
+def back_tools():
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🔙 بازگشت به ابزارها",
+                    callback_data="tools"
+                )
+            ]
+        ]
+    )
+
+
 # =========================================================
 # REQUIRED CHANNELS
 # =========================================================
 
-async def is_member(channel, user_id):
+async def is_member(channel: str, user_id: int) -> bool:
+
     if not channel:
         return True
 
     try:
+
         member = await bot.get_chat_member(
             chat_id=channel,
             user_id=user_id
@@ -406,13 +463,16 @@ async def is_member(channel, user_id):
         )
 
     except Exception as e:
-        logging.warning(
+
+        logger.warning(
             f"Channel check failed: {channel} | {e}"
         )
+
         return False
 
 
-async def check_channels(user_id):
+async def check_channels(user_id: int) -> bool:
+
     first = await is_member(
         CHANNEL_1,
         user_id
@@ -427,10 +487,11 @@ async def check_channels(user_id):
 
 
 def join_keyboard():
-    buttons = []
+
+    rows = []
 
     if CHANNEL_LINK_1:
-        buttons.append([
+        rows.append([
             InlineKeyboardButton(
                 text="📢 عضویت کانال اول",
                 url=CHANNEL_LINK_1
@@ -438,14 +499,14 @@ def join_keyboard():
         ])
 
     if CHANNEL_LINK_2:
-        buttons.append([
+        rows.append([
             InlineKeyboardButton(
                 text="📢 عضویت کانال دوم",
                 url=CHANNEL_LINK_2
             )
         ])
 
-    buttons.append([
+    rows.append([
         InlineKeyboardButton(
             text="✅ بررسی عضویت",
             callback_data="check_join"
@@ -453,17 +514,41 @@ def join_keyboard():
     ])
 
     return InlineKeyboardMarkup(
-        inline_keyboard=buttons
+        inline_keyboard=rows
     )
 
 
-async def has_access(user_id):
+# =========================================================
+# ACCESS
+# =========================================================
+
+async def verify_access(user_id: int) -> tuple:
+
     if not await check_channels(user_id):
-        return False
+        return False, (
+            "🔐 برای استفاده از SaaS ابتدا باید "
+            "در هر دو کانال عضو شوی."
+        )
 
-    allowed, result = check_access(user_id)
+    try:
 
-    return allowed
+        allowed, result = check_access(user_id)
+
+        if not allowed:
+            return False, result
+
+        return True, result
+
+    except Exception as e:
+
+        logger.exception(
+            f"Subscription error for {user_id}: {e}"
+        )
+
+        return False, (
+            "⚠️ در بررسی حساب مشکلی پیش آمد.\n"
+            "لطفاً دوباره تلاش کن."
+        )
 
 
 # =========================================================
@@ -473,69 +558,111 @@ async def has_access(user_id):
 @dp.message(Command("start"))
 async def start(message: Message, state: FSMContext):
 
-    await state.clear()
+    try:
 
-    user = message.from_user
+        await state.clear()
 
-    add_user(
-        user.id,
-        user.username or ""
-    )
+        user = message.from_user
 
-    update_activity(user.id)
-
-    if not await check_channels(user.id):
-
-        await message.answer(
-            "🚀 <b>به SaaS خوش آمدی!</b>\n\n"
-            "برای استفاده از ربات ابتدا باید عضو دو کانال شوی.\n\n"
-            "بعد از عضویت روی «بررسی عضویت» بزن.",
-            reply_markup=join_keyboard()
+        add_user(
+            user.id,
+            user.username or ""
         )
 
-        return
+        update_activity(
+            user.id
+        )
+
+        if not await check_channels(user.id):
+
+            await message.answer(
+                "🚀 <b>به SaaS خوش آمدی!</b>\n\n"
+                "برای استفاده از ربات ابتدا باید "
+                "در دو کانال ما عضو شوی.\n\n"
+                "بعد از عضویت روی «بررسی عضویت» بزن.",
+                reply_markup=join_keyboard()
+            )
+
+            return
+
+        await message.answer(
+            "🧠 <b>SaaS</b>\n\n"
+            "دستیار حرفه‌ای مدیریت محتوا آماده است.\n\n"
+            "📢 کانال\n"
+            "👥 گروه\n"
+            "👤 پیج شخصی\n"
+            "✍️ ابزار متن\n"
+            "📅 برنامه محتوا\n\n"
+            "از منوی زیر شروع کن:",
+            reply_markup=main_menu()
+        )
+
+    except Exception:
+
+        logger.exception("Start handler failed")
+
+        await message.answer(
+            "⚠️ مشکلی پیش آمد. لطفاً دوباره /start را بزن."
+        )
+
+
+# =========================================================
+# CANCEL
+# =========================================================
+
+@dp.message(Command("cancel"))
+async def cancel(message: Message, state: FSMContext):
+
+    await state.clear()
 
     await message.answer(
-        "🧠 <b>SaaS</b>\n\n"
-        "دستیار حرفه‌ای مدیریت محتوا آماده است.\n\n"
-        "📢 ابزار کانال\n"
-        "👥 ابزار گروه\n"
-        "👤 ابزار پیج\n"
-        "✍️ ابزار متن\n"
-        "📅 برنامه محتوا\n\n"
-        "از منوی زیر شروع کن:",
+        "✅ عملیات لغو شد.",
         reply_markup=main_menu()
     )
 
 
 # =========================================================
-# JOIN
+# JOIN CHECK
 # =========================================================
 
 @dp.callback_query(F.data == "check_join")
 async def check_join(callback: CallbackQuery):
 
-    user_id = callback.from_user.id
+    try:
 
-    if not await check_channels(user_id):
+        if not await check_channels(
+            callback.from_user.id
+        ):
+
+            await callback.answer(
+                "❌ هنوز عضویت هر دو کانال تأیید نشده.",
+                show_alert=True
+            )
+
+            return
+
+        await callback.message.edit_text(
+            "✅ <b>عضویت تأیید شد!</b>\n\n"
+            "SaaS آماده استفاده است 🧠",
+            reply_markup=main_menu()
+        )
 
         await callback.answer(
-            "❌ هنوز عضویت هر دو کانال تأیید نشده است.",
+            "عضویت تأیید شد ✅"
+        )
+
+    except Exception:
+
+        logger.exception("Join check failed")
+
+        await callback.answer(
+            "⚠️ خطایی رخ داد.",
             show_alert=True
         )
-        return
-
-    await callback.message.edit_text(
-        "✅ <b>عضویت تأیید شد!</b>\n\n"
-        "SaaS آماده استفاده است 🧠",
-        reply_markup=main_menu()
-    )
-
-    await callback.answer("تأیید شد ✅")
 
 
 # =========================================================
-# MENUS
+# MENU CALLBACKS
 # =========================================================
 
 @dp.callback_query(F.data == "tools")
@@ -555,7 +682,7 @@ async def channel_tools(callback: CallbackQuery):
 
     await callback.message.edit_text(
         "📢 <b>ابزارهای کانال</b>\n\n"
-        "یک ابزار را انتخاب کن:",
+        "ابزار موردنظر را انتخاب کن:",
         reply_markup=channel_tools_menu()
     )
 
@@ -567,7 +694,7 @@ async def group_tools(callback: CallbackQuery):
 
     await callback.message.edit_text(
         "👥 <b>ابزارهای گروه</b>\n\n"
-        "یک ابزار را انتخاب کن:",
+        "ابزار موردنظر را انتخاب کن:",
         reply_markup=group_tools_menu()
     )
 
@@ -579,7 +706,7 @@ async def profile_tools(callback: CallbackQuery):
 
     await callback.message.edit_text(
         "👤 <b>ابزارهای پیج شخصی</b>\n\n"
-        "یک ابزار را انتخاب کن:",
+        "ابزار موردنظر را انتخاب کن:",
         reply_markup=profile_tools_menu()
     )
 
@@ -591,7 +718,7 @@ async def text_tools(callback: CallbackQuery):
 
     await callback.message.edit_text(
         "✍️ <b>ابزارهای متن</b>\n\n"
-        "یک ابزار را انتخاب کن:",
+        "ابزار موردنظر را انتخاب کن:",
         reply_markup=text_tools_menu()
     )
 
@@ -602,8 +729,8 @@ async def text_tools(callback: CallbackQuery):
 async def content_tools(callback: CallbackQuery):
 
     await callback.message.edit_text(
-        "📅 <b>برنامه‌ریزی محتوا</b>\n\n"
-        "یک ابزار را انتخاب کن:",
+        "📅 <b>برنامه محتوا</b>\n\n"
+        "ابزار موردنظر را انتخاب کن:",
         reply_markup=content_tools_menu()
     )
 
@@ -627,23 +754,28 @@ async def back_main(callback: CallbackQuery):
 # =========================================================
 
 @dp.callback_query(F.data == "vip")
-async def vip_callback(callback: CallbackQuery):
-
-    support = os.getenv(
-        "SUPPORT_USERNAME",
-        ""
-    ).strip()
+async def vip_callback(
+    callback: CallbackQuery,
+    state: FSMContext
+):
 
     buttons = []
 
-    if support:
-        if not support.startswith("@"):
-            support = "@" + support
+    if CARD_NUMBER:
+
+        buttons.append([
+            InlineKeyboardButton(
+                text="💳 پرداخت کارت‌به‌کارت",
+                callback_data="vip_payment"
+            )
+        ])
+
+    if SUPPORT_USERNAME:
 
         buttons.append([
             InlineKeyboardButton(
                 text="💬 پشتیبانی",
-                url=f"https://t.me/{support.replace('@', '')}"
+                url=f"https://t.me/{SUPPORT_USERNAME}"
             )
         ])
 
@@ -658,15 +790,48 @@ async def vip_callback(callback: CallbackQuery):
         "⭐ <b>VIP SaaS</b>\n\n"
         f"💰 قیمت: <b>{VIP_PRICE}</b> تومان\n"
         "⏳ مدت: <b>۳۰ روز</b>\n\n"
-        "مزایای VIP:\n"
-        "• سهمیه بیشتر\n"
-        "• دسترسی بهتر به ابزارها\n"
-        "• مناسب برای مدیریت حرفه‌ای محتوا\n"
-        "• استفاده مداوم برای کانال و پیج\n\n"
-        "برای فعال‌سازی با پشتیبانی هماهنگ کن.",
+        "مزایا:\n"
+        "• استفاده بدون محدودیت FREE\n"
+        "• دسترسی کامل‌تر به ابزارها\n"
+        "• مناسب مدیریت کانال و پیج\n"
+        "• اعتبار ۳۰ روزه\n\n"
+        "برای خرید گزینه زیر را انتخاب کن.",
         reply_markup=InlineKeyboardMarkup(
             inline_keyboard=buttons
         )
+    )
+
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "vip_payment")
+async def vip_payment(
+    callback: CallbackQuery,
+    state: FSMContext
+):
+
+    if not CARD_NUMBER:
+
+        await callback.answer(
+            "روش پرداخت هنوز تنظیم نشده.",
+            show_alert=True
+        )
+
+        return
+
+    await state.set_state(
+        ToolState.vip_payment
+    )
+
+    await callback.message.edit_text(
+        "💳 <b>خرید VIP</b>\n\n"
+        f"مبلغ: <b>{VIP_PRICE}</b> تومان\n\n"
+        f"شماره کارت:\n"
+        f"<code>{CARD_NUMBER}</code>\n\n"
+        "پس از کارت‌به‌کارت، "
+        "عکس رسید یا اطلاعات پرداخت را ارسال کن.\n\n"
+        "بعد از بررسی ادمین، VIP برایت فعال می‌شود.\n\n"
+        "برای لغو: /cancel"
     )
 
     await callback.answer()
@@ -679,134 +844,4 @@ async def vip_callback(callback: CallbackQuery):
 @dp.callback_query(F.data == "account")
 async def account_callback(callback: CallbackQuery):
 
-    user = get_user(
-        callback.from_user.id
-    )
-
-    if not user:
-        await callback.answer(
-            "حساب پیدا نشد.",
-            show_alert=True
-        )
-        return
-
-    plan = user[5] if len(user) > 5 else "FREE"
-    expire = user[6] if len(user) > 6 else None
-    usage = user[7] if len(user) > 7 else 0
-
-    plan_text = "⭐ VIP" if plan == "VIP" else "🆓 FREE"
-
-    text = (
-        "👤 <b>حساب من</b>\n\n"
-        f"🆔 شناسه: <code>{callback.from_user.id}</code>\n"
-        f"📦 پلن: <b>{plan_text}</b>\n"
-        f"📊 استفاده امروز: <b>{usage}</b>\n"
-    )
-
-    if expire:
-        text += f"⏳ انقضا: <b>{expire}</b>\n"
-
-    await callback.message.edit_text(
-        text,
-        reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[
-                [
-                    InlineKeyboardButton(
-                        text="⭐ خرید VIP",
-                        callback_data="vip"
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        text="🔙 بازگشت",
-                        callback_data="back_main"
-                    )
-                ]
-            ]
-        )
-    )
-
-    await callback.answer()
-
-
-# =========================================================
-# HELP
-# =========================================================
-
-@dp.callback_query(F.data == "help")
-async def help_callback(callback: CallbackQuery):
-
-    await callback.message.edit_text(
-        "📚 <b>راهنمای SaaS</b>\n\n"
-        "1️⃣ ابتدا عضو کانال‌های الزامی شو.\n"
-        "2️⃣ وارد ابزارها شو.\n"
-        "3️⃣ دسته موردنظر را انتخاب کن.\n"
-        "4️⃣ ابزار را انتخاب کن.\n"
-        "5️⃣ اطلاعات را ارسال کن.\n"
-        "6️⃣ نتیجه آماده می‌شود.\n\n"
-        "برای لغو عملیات:\n"
-        "/cancel",
-        reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[
-                [
-                    InlineKeyboardButton(
-                        text="🔙 بازگشت",
-                        callback_data="back_main"
-                    )
-                ]
-            ]
-        )
-    )
-
-    await callback.answer()
-
-
-# =========================================================
-# TOOL STARTER
-# =========================================================
-
-async def start_tool(
-    callback: CallbackQuery,
-    state: FSMContext,
-    tool_name: str,
-    state_obj: State,
-    description: str
-):
-
-    if not await check_channels(
-        callback.from_user.id
-    ):
-        await callback.answer(
-            "ابتدا باید عضو کانال‌ها شوی.",
-            show_alert=True
-        )
-        return
-
-    await state.set_state(state_obj)
-
-    await callback.message.edit_text(
-        f"🛠 <b>{tool_name}</b>\n\n"
-        f"{description}\n\n"
-        "📩 اطلاعاتت را در یک پیام بفرست.\n\n"
-        "برای لغو: /cancel"
-    )
-
-    await callback.answer()
-
-
-# =========================================================
-# TOOL CALLBACKS
-# =========================================================
-
-@dp.callback_query(F.data == "tool_caption")
-async def tool_caption(
-    callback: CallbackQuery,
-    state: FSMContext
-):
-    await start_tool(
-        callback,
-        state,
-        "✍️ ساخت کپشن",
-        ToolState.waiting_caption,
-        "موضوع، محصول یا متن پست را بفرست."
-    )
+    try
