@@ -70,7 +70,39 @@ def tools_menu():
             [InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_main")]
         ]
     )
+@dp.callback_query(F.data == "channel_tools")
+async def channel_tools(callback: CallbackQuery):
+    await callback.message.edit_text(
+        "📢 ابزارهای کانال:\n\n(بعداً کاملش می‌کنیم)",
+        reply_markup=back_menu()
+    )
 
+@dp.callback_query(F.data == "group_tools")
+async def group_tools(callback: CallbackQuery):
+    await callback.message.edit_text(
+        "👥 ابزارهای گروه:\n\n(بعداً کاملش می‌کنیم)",
+        reply_markup=back_menu()
+    )
+
+@dp.callback_query(F.data == "insta_tools")
+async def insta_tools(callback: CallbackQuery):
+    await callback.message.edit_text(
+        "📸 ابزارهای اینستاگرام:\n\n(بعداً کاملش می‌کنیم)",
+        reply_markup=back_menu()
+    )
+
+@dp.callback_query(F.data == "text_tools")
+async def text_tools(callback: CallbackQuery):
+    await callback.message.edit_text(
+        "✍️ متن خودتو بفرست:",
+    )
+
+@dp.callback_query(F.data == "content_tools")
+async def content_tools(callback: CallbackQuery):
+    await callback.message.edit_text(
+        "📅 برنامه محتوا:\n\n(بعداً کاملش می‌کنیم)",
+        reply_markup=back_menu()
+    )
 # ================= START =================
 @dp.message(CommandStart())
 async def start(message: Message):
