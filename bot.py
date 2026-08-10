@@ -58,18 +58,15 @@ async def is_member(user_id):
     except:
         return False
 
-# ================= KEYBOARDS =================
-def main_menu():
+# ================= KEYBOARDS =============
+def tools_menu():
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="👤 حساب کاربری", callback_data="account")],
-            [InlineKeyboardButton(text="🧠 ابزارها", callback_data="tools")]
-        ]
-    )
-
-def back_menu():
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
+            [InlineKeyboardButton(text="📢 کانال تلگرام", callback_data="channel_tools")],
+            [InlineKeyboardButton(text="👥 گروه", callback_data="group_tools")],
+            [InlineKeyboardButton(text="📸 اینستاگرام", callback_data="insta_tools")],
+            [InlineKeyboardButton(text="✍️ متن", callback_data="text_tools")],
+            [InlineKeyboardButton(text="📅 برنامه محتوا", callback_data="content_tools")],
             [InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_main")]
         ]
     )
@@ -146,10 +143,9 @@ async def account(callback: CallbackQuery):
 @dp.callback_query(F.data == "tools")
 async def tools(callback: CallbackQuery):
     await callback.message.edit_text(
-        "🧠 ابزارها:\n\nبه زودی اضافه میشه...",
-        reply_markup=back_menu()
+        "🧠 یکی رو انتخاب کن:",
+        reply_markup=tools_menu()
     )
-    await callback.answer()
 
 # ================= BACK =================
 @dp.callback_query(F.data == "back_main")
