@@ -1,7 +1,7 @@
 # =========================================================
-# bot.py — PART 1/5
-# SaaS Telegram Bot
-# No OpenAI / No external AI
+# SaaS BOT - PART 1/5
+# Core / Imports / ENV / Bot / States / Keyboards
+# Compatible with aiogram 3.x
 # =========================================================
 
 import asyncio
@@ -11,8 +11,9 @@ import sqlite3
 from datetime import datetime, timedelta
 
 from aiogram import Bot, Dispatcher, F
+from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.filters import Command, CommandStart
+from aiogram.filters import Command, CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
@@ -21,7 +22,67 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     InlineKeyboardButton,
 )
-from aiogram.client.default import DefaultBotProperties
+
+# =========================================================
+# OPTIONAL PROJECT MODULES
+# =========================================================
+# این بخش عمداً با فایل‌های پروژه فعلی تو هماهنگ شده.
+# اگر این فایل‌ها وجود داشته باشند، از آنها استفاده می‌شود.
+
+try:
+    from config import BOT_TOKEN, ADMIN_ID
+except ImportError:
+    BOT_TOKEN = os.getenv("TOKEN", "").strip()
+    ADMIN_ID = int(os.getenv("ADMIN_ID", "0") or "0")
+
+try:
+    from database import (
+        init_db,
+        add_user,
+        get_user,
+        update_activity,
+        count_users,
+        count_purchases,
+        total_income,
+        set_vip,
+        add_purchase,
+    )
+except ImportError:
+
+    def init_db():
+        pass
+
+    def add_user(user_id, username=""):
+        pass
+
+    def get_user(user_id):
+        return None
+
+    def update_activity(user_id):
+        pass
+
+    def count_users():
+        return 0
+
+    def count_purchases():
+        return 0
+
+    def total_income():
+        return 0
+
+    def set_vip(user_id, expire_date):
+        pass
+
+    def add_purchase(user_id, amount):
+        pass
+
+
+try:
+    from subscription import check_access
+except ImportError:
+
+    def check_access(user_id):
+        return True, "OK"
 
 
 # =========================================================
@@ -30,298 +91,142 @@ from aiogram.client.default import DefaultBotProperties
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s"
+    format="%(asctime)s | %(levelname)s | %(message)s",
 )
 
-logger = logging.getLogger("SaaSBot")
+logger = logging.getLogger("SaaS")
 
 
 # =========================================================
-# ENV SETTINGS — RENDER
+# ENVIRONMENT VARIABLES
 # =========================================================
 
-TOKEN = os.getenv("TOKEN", "").strip()
+TOKEN = (
+    os.getenv("TOKEN")
+    or os.getenv("BOT_TOKEN")
+    or BOT_TOKEN
+    or ""
+).strip()
 
+if not TOKEN:
+    raise ValueError(
+        "TOKEN تنظیم نشده! "
+        "در Render یک Environment Variable با نام TOKEN بساز."
+    )
+
+
+# کانال اصلی
 CHANNEL_USERNAME = os.getenv(
     "CHANNEL_USERNAME",
     ""
 ).strip()
 
-CHANNEL_1 = os.getenv(
-    "CHANNEL_1",
+
+# کانال دوم - اختیاری
+CHANNEL_2_USERNAME = os.getenv(
+    "CHANNEL_2_USERNAME",
     ""
 ).strip()
 
-CHANNEL_2 = os.getenv(
-    "CHANNEL_2",
+
+# لینک مستقیم کانال اول - اختیاری
+CHANNEL_LINK = os.getenv(
+    "CHANNEL_LINK",
     ""
 ).strip()
 
-CHANNEL_LINK_1 = os.getenv(
-    "CHANNEL_LINK_1",
+
+# لینک مستقیم کانال دوم - اختیاری
+CHANNEL_2_LINK = os.getenv(
+    "CHANNEL_2_LINK",
     ""
 ).strip()
 
-CHANNEL_LINK_2 = os.getenv(
-    "CHANNEL_LINK_2",
-    ""
-).strip()
 
+# قیمت VIP
 VIP_PRICE = os.getenv(
     "VIP_PRICE",
     "199000"
 ).strip()
 
+
+# مدت VIP برحسب روز
 VIP_DAYS = int(
     os.getenv(
         "VIP_DAYS",
         "30"
-    )
+    ) or "30"
 )
 
+
+# شماره کارت
 CARD_NUMBER = os.getenv(
     "CARD_NUMBER",
     ""
 ).strip()
 
+
+# یوزرنیم پشتیبانی
 SUPPORT_USERNAME = os.getenv(
     "SUPPORT_USERNAME",
     ""
 ).strip().replace("@", "")
 
-ADMIN_ID = os.getenv(
-    "ADMIN_ID",
-    ""
-).strip()
-
 
 # =========================================================
-# TOKEN CHECK
-# =========================================================
-
-if not TOKEN:
-    raise RuntimeError(
-        "❌ ENV با نام TOKEN تنظیم نشده است."
-    )
-
-
-# =========================================================
-# BOT
+# BOT / DISPATCHER
 # =========================================================
 
 bot = Bot(
     token=TOKEN,
     default=DefaultBotProperties(
         parse_mode=ParseMode.HTML
-    )
+    ),
 )
 
 dp = Dispatcher()
 
 
 # =========================================================
-# DATABASE
+# STATES
 # =========================================================
 
-DB_FILE = "bot.db"
+class ToolState(StatesGroup):
 
-db = sqlite3.connect(
-    DB_FILE,
-    check_same_thread=False
-)
+    # Channel
+    caption = State()
+    video_caption = State()
+    post_idea = State()
+    hashtag = State()
+    title = State()
+    ad = State()
+    announcement = State()
 
-cursor = db.cursor()
+    # Group
+    comment = State()
+    reply = State()
+    poll = State()
+    faq = State()
 
+    # Profile / Instagram
+    bio = State()
+    insta_caption = State()
+    insta_idea = State()
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS users (
-    user_id INTEGER PRIMARY KEY,
-    username TEXT DEFAULT '',
-    plan TEXT DEFAULT 'FREE',
-    expire_date TEXT DEFAULT '',
-    usage INTEGER DEFAULT 0,
-    created_at TEXT DEFAULT '',
-    last_activity TEXT DEFAULT ''
-)
-""")
+    # Text
+    rewrite = State()
+    summary = State()
+    product = State()
 
-db.commit()
+    # Content
+    plan = State()
 
-
-# =========================================================
-# DATABASE FUNCTIONS
-# =========================================================
-
-def add_user(
-    user_id: int,
-    username: str = ""
-):
-    now = datetime.now().isoformat()
-
-    cursor.execute(
-        """
-        INSERT OR IGNORE INTO users
-        (
-            user_id,
-            username,
-            plan,
-            expire_date,
-            usage,
-            created_at,
-            last_activity
-        )
-        VALUES (?, ?, 'FREE', '', 0, ?, ?)
-        """,
-        (
-            user_id,
-            username,
-            now,
-            now
-        )
-    )
-
-    cursor.execute(
-        """
-        UPDATE users
-        SET username = ?,
-            last_activity = ?
-        WHERE user_id = ?
-        """,
-        (
-            username,
-            now,
-            user_id
-        )
-    )
-
-    db.commit()
-
-
-def get_user(user_id: int):
-    cursor.execute(
-        """
-        SELECT
-            user_id,
-            username,
-            plan,
-            expire_date,
-            usage,
-            created_at,
-            last_activity
-        FROM users
-        WHERE user_id = ?
-        """,
-        (user_id,)
-    )
-
-    return cursor.fetchone()
-
-
-def update_activity(user_id: int):
-    cursor.execute(
-        """
-        UPDATE users
-        SET last_activity = ?
-        WHERE user_id = ?
-        """,
-        (
-            datetime.now().isoformat(),
-            user_id
-        )
-    )
-
-    db.commit()
-
-
-def increment_usage(user_id: int):
-    cursor.execute(
-        """
-        UPDATE users
-        SET usage = usage + 1
-        WHERE user_id = ?
-        """,
-        (user_id,)
-    )
-
-    db.commit()
-
-
-def reset_daily_usage():
-    # این تابع فعلاً برای ساختار آینده نگه داشته شده
-    # تا بتوانیم محدودیت روزانه را بدون تغییر ساختار اصلی اضافه کنیم.
-    pass
-
-
-def set_vip(
-    user_id: int,
-    days: int = VIP_DAYS
-):
-    expire = datetime.now() + timedelta(
-        days=days
-    )
-
-    cursor.execute(
-        """
-        UPDATE users
-        SET plan = 'VIP',
-            expire_date = ?
-        WHERE user_id = ?
-        """,
-        (
-            expire.isoformat(),
-            user_id
-        )
-    )
-
-    db.commit()
-
-    return expire
-
-
-def is_vip(user_id: int) -> bool:
-
-    user = get_user(user_id)
-
-    if not user:
-        return False
-
-    plan = user[2]
-    expire_date = user[3]
-
-    if plan != "VIP":
-        return False
-
-    if not expire_date:
-        return False
-
-    try:
-        expire = datetime.fromisoformat(
-            expire_date
-        )
-    except ValueError:
-        return False
-
-    if expire <= datetime.now():
-
-        cursor.execute(
-            """
-            UPDATE users
-            SET plan = 'FREE',
-                expire_date = ''
-            WHERE user_id = ?
-            """,
-            (user_id,)
-        )
-
-        db.commit()
-
-        return False
-
-    return True
+    # VIP
+    vip_payment = State()
 
 
 # =========================================================
-# SAFE TEXT
+# SAFE TEXT FUNCTIONS
 # =========================================================
 
 def clean_text(
@@ -332,7 +237,7 @@ def clean_text(
     if not text:
         return ""
 
-    text = text.strip()
+    text = str(text).strip()
 
     if len(text) > limit:
         text = text[:limit] + "..."
@@ -340,64 +245,623 @@ def clean_text(
     return text
 
 
-def username_of(
-    message: Message
-) -> str:
+def escape_html(text: str) -> str:
 
-    username = message.from_user.username
+    if not text:
+        return ""
 
-    if username:
-        return "@" + username
+    return (
+        str(text)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
 
-    return str(
-        message.from_user.id
+
+def get_username(message: Message) -> str:
+
+    if message.from_user.username:
+        return "@" + message.from_user.username
+
+    return str(message.from_user.id)
+
+
+# =========================================================
+# MAIN MENU
+# =========================================================
+
+def main_menu():
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+
+            [
+                InlineKeyboardButton(
+                    text="🧠 ابزارها",
+                    callback_data="tools"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text="⭐ خرید VIP",
+                    callback_data="vip"
+                ),
+
+                InlineKeyboardButton(
+                    text="👤 حساب من",
+                    callback_data="account"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text="📚 راهنما",
+                    callback_data="help"
+                )
+            ]
+
+        ]
     )
 
 
 # =========================================================
-# TOOL STATES
+# TOOLS MENU
 # =========================================================
 
-class ToolState(StatesGroup):
+def tools_menu():
 
-    caption = State()
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
 
-    video_caption = State()
+            [
+                InlineKeyboardButton(
+                    text="📢 مدیریت کانال تلگرام",
+                    callback_data="channel_tools"
+                )
+            ],
 
-    comment = State()
+            [
+                InlineKeyboardButton(
+                    text="👥 مدیریت گروه",
+                    callback_data="group_tools"
+                )
+            ],
 
-    reply = State()
+            [
+                InlineKeyboardButton(
+                    text="📸 ابزارهای اینستاگرام",
+                    callback_data="insta_tools"
+                )
+            ],
 
-    bio = State()
+            [
+                InlineKeyboardButton(
+                    text="✍️ ابزارهای متن",
+                    callback_data="text_tools"
+                )
+            ],
 
-    hashtag = State()
+            [
+                InlineKeyboardButton(
+                    text="📅 برنامه‌ریزی محتوا",
+                    callback_data="content_tools"
+                )
+            ],
 
-    title = State()
+            [
+                InlineKeyboardButton(
+                    text="🔙 منوی اصلی",
+                    callback_data="back_main"
+                )
+            ]
 
-    post_idea = State()
+        ]
+    )
 
-    ad = State()
 
-    announcement = State()
+# =========================================================
+# CHANNEL TOOLS
+# =========================================================
 
-    rewrite = State()
+def channel_tools_menu():
 
-    summary = State()
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
 
-    plan = State()
+            [
+                InlineKeyboardButton(
+                    text="✍️ ساخت کپشن",
+                    callback_data="tool_caption"
+                ),
 
-    product = State()
+                InlineKeyboardButton(
+                    text="🎬 کپشن ویدیو",
+                    callback_data="tool_video_caption"
+                )
+            ],
 
-    poll = State()
+            [
+                InlineKeyboardButton(
+                    text="💡 ایده پست",
+                    callback_data="tool_post_idea"
+                ),
 
-    faq = State()
+                InlineKeyboardButton(
+                    text="🏷 هشتگ ساز",
+                    callback_data="tool_hashtag"
+                )
+            ],
 
-    vip_payment = State()
+            [
+                InlineKeyboardButton(
+                    text="📰 عنوان پست",
+                    callback_data="tool_title"
+                ),
+
+                InlineKeyboardButton(
+                    text="📢 متن تبلیغ",
+                    callback_data="tool_ad"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text="📌 اطلاعیه",
+                    callback_data="tool_announcement"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text="🔙 بازگشت",
+                    callback_data="tools"
+                )
+            ]
+
+        ]
+    )
+
+
+# =========================================================
+# GROUP TOOLS
+# =========================================================
+
+def group_tools_menu():
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+
+            [
+                InlineKeyboardButton(
+                    text="💬 ساخت کامنت",
+                    callback_data="tool_comment"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text="🗣 پاسخ به کاربر",
+                    callback_data="tool_reply"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text="📢 اطلاعیه گروه",
+                    callback_data="tool_announcement"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text="📊 ساخت نظرسنجی",
+                    callback_data="tool_poll"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text="❓ ساخت FAQ",
+                    callback_data="tool_faq"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text="🔙 بازگشت",
+                    callback_data="tools"
+                )
+            ]
+
+        ]
+    )
+
+
+# =========================================================
+# INSTAGRAM TOOLS
+# =========================================================
+
+def insta_tools_menu():
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+
+            [
+                InlineKeyboardButton(
+                    text="📝 کپشن اینستاگرام",
+                    callback_data="tool_insta_caption"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text="💡 ایده پست و ریلز",
+                    callback_data="tool_insta_idea"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text="👤 ساخت Bio",
+                    callback_data="tool_bio"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text="🏷 هشتگ اینستاگرام",
+                    callback_data="tool_hashtag"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text="🎯 عنوان جذاب",
+                    callback_data="tool_title"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text="🔙 بازگشت",
+                    callback_data="tools"
+                )
+            ]
+
+        ]
+    )
+
+
+# =========================================================
+# TEXT TOOLS
+# =========================================================
+
+def text_tools_menu():
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+
+            [
+                InlineKeyboardButton(
+                    text="✏️ بازنویسی حرفه‌ای",
+                    callback_data="tool_rewrite"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text="📋 خلاصه‌سازی",
+                    callback_data="tool_summary"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text="📰 عنوان‌سازی",
+                    callback_data="tool_title"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text="🏷 هشتگ‌سازی",
+                    callback_data="tool_hashtag"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text="🛍 متن محصول",
+                    callback_data="tool_product"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text="🔙 بازگشت",
+                    callback_data="tools"
+                )
+            ]
+
+        ]
+    )
+
+
+# =========================================================
+# CONTENT TOOLS
+# =========================================================
+
+def content_tools_menu():
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+
+            [
+                InlineKeyboardButton(
+                    text="📅 برنامه ۷ روزه",
+                    callback_data="tool_plan"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text="💡 ایده‌های محتوا",
+                    callback_data="tool_post_idea"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text="🎯 عنوان‌های جذاب",
+                    callback_data="tool_title"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text="📢 ایده تبلیغاتی",
+                    callback_data="tool_ad"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text="🔙 بازگشت",
+                    callback_data="tools"
+                )
+            ]
+
+        ]
+    )
+
+
+# =========================================================
+# BACK MENUS
+# =========================================================
+
+def back_main_menu():
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🔙 منوی اصلی",
+                    callback_data="back_main"
+                )
+            ]
+        ]
+    )
+
+
+def back_tools_menu():
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🔙 بازگشت به ابزارها",
+                    callback_data="tools"
+                )
+            ]
+        ]
+    )
+
+
+# =========================================================
+# REQUIRED CHANNEL CHECK
+# =========================================================
+
+def normalize_channel(value: str) -> str:
+
+    value = (value or "").strip()
+
+    if not value:
+        return ""
+
+    if value.startswith("https://t.me/"):
+        value = value.replace(
+            "https://t.me/",
+            ""
+        )
+
+    if value.startswith("http://t.me/"):
+        value = value.replace(
+            "http://t.me/",
+            ""
+        )
+
+    if value.startswith("t.me/"):
+        value = value.replace(
+            "t.me/",
+            ""
+        )
+
+    return value
+
+
+CHANNEL_USERNAME = normalize_channel(
+    CHANNEL_USERNAME
+)
+
+CHANNEL_2_USERNAME = normalize_channel(
+    CHANNEL_2_USERNAME
+)
+
+
+async def is_member(
+    channel: str,
+    user_id: int
+) -> bool:
+
+    if not channel:
+        return True
+
+    try:
+
+        member = await bot.get_chat_member(
+            chat_id="@" + channel.lstrip("@"),
+            user_id=user_id
+        )
+
+        return member.status in (
+            "member",
+            "administrator",
+            "creator"
+        )
+
+    except Exception as e:
+
+        logger.warning(
+            "Channel membership check failed: %s | %s",
+            channel,
+            e
+        )
+
+        return False
+
+
+async def check_channels(
+    user_id: int
+) -> bool:
+
+    first = await is_member(
+        CHANNEL_USERNAME,
+        user_id
+    )
+
+    if not first:
+        return False
+
+    second = await is_member(
+        CHANNEL_2_USERNAME,
+        user_id
+    )
+
+    return second
+
+
+# =========================================================
+# JOIN KEYBOARD
+# =========================================================
+
+def join_keyboard():
+
+    rows = []
+
+    link1 = CHANNEL_LINK
+
+    if not link1 and CHANNEL_USERNAME:
+        link1 = (
+            "https://t.me/"
+            + CHANNEL_USERNAME.lstrip("@")
+        )
+
+    link2 = CHANNEL_2_LINK
+
+    if not link2 and CHANNEL_2_USERNAME:
+        link2 = (
+            "https://t.me/"
+            + CHANNEL_2_USERNAME.lstrip("@")
+        )
+
+    if link1:
+
+        rows.append([
+            InlineKeyboardButton(
+                text="📢 عضویت کانال اول",
+                url=link1
+            )
+        ])
+
+    if link2:
+
+        rows.append([
+            InlineKeyboardButton(
+                text="📢 عضویت کانال دوم",
+                url=link2
+            )
+        ])
+
+    rows.append([
+        InlineKeyboardButton(
+            text="✅ بررسی عضویت",
+            callback_data="check_join"
+        )
+    ])
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=rows
+    )
+
+
+# =========================================================
+# ACCESS CHECK
+# =========================================================
+
+async def user_has_access(
+    user_id: int
+) -> bool:
+
+    if not await check_channels(user_id):
+        return False
+
+    try:
+
+        result = check_access(user_id)
+
+        if isinstance(result, tuple):
+            return bool(result[0])
+
+        return bool(result)
+
+    except Exception as e:
+
+        logger.exception(
+            "Access check failed: %s",
+            e
+        )
+
+        return False
+
+
+# =========================================================
+# INIT DATABASE
+# =========================================================
+
+try:
+    init_db()
+    logger.info("Database initialized successfully.")
+except Exception as e:
+    logger.exception(
+        "Database initialization failed: %s",
+        e
+    )
 
 
 # =========================================================
 # END OF PART 1/5
-# =========================================================
+# =========================================================ت
 # =========================================================
 # bot.py — PART 2/5
 # KEYBOARDS + REQUIRED CHANNELS + MAIN MENU
