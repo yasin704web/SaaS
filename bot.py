@@ -1,7 +1,5 @@
 # =========================================================
-# SaaS BOT - PART 1/5
-# Core / Imports / ENV / Bot / States / Keyboards
-# Compatible with aiogram 3.x
+# PART 1/5 — IMPORTS, SETTINGS, BOT, STATES, KEYBOARDS
 # =========================================================
 
 import asyncio
@@ -11,7 +9,6 @@ import sqlite3
 from datetime import datetime, timedelta
 
 from aiogram import Bot, Dispatcher, F
-from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.filters import Command, CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
@@ -22,67 +19,64 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     InlineKeyboardButton,
 )
+from aiogram.client.default import DefaultBotProperties
+
 
 # =========================================================
-# OPTIONAL PROJECT MODULES
+# ENVIRONMENT VARIABLES
 # =========================================================
-# این بخش عمداً با فایل‌های پروژه فعلی تو هماهنگ شده.
-# اگر این فایل‌ها وجود داشته باشند، از آنها استفاده می‌شود.
 
-try:
-    from config import BOT_TOKEN, ADMIN_ID
-except ImportError:
-    BOT_TOKEN = os.getenv("TOKEN", "").strip()
-    ADMIN_ID = int(os.getenv("ADMIN_ID", "0") or "0")
+TOKEN = os.getenv("TOKEN", "").strip()
 
-try:
-    from database import (
-        init_db,
-        add_user,
-        get_user,
-        update_activity,
-        count_users,
-        count_purchases,
-        total_income,
-        set_vip,
-        add_purchase,
+CHANNEL_USERNAME = os.getenv(
+    "CHANNEL_USERNAME",
+    ""
+).strip()
+
+CHANNEL_USERNAME2 = os.getenv(
+    "CHANNEL_USERNAME2",
+    ""
+).strip()
+
+VIP_PRICE = os.getenv(
+    "VIP_PRICE",
+    "199000"
+).strip()
+
+VIP_DAYS = os.getenv(
+    "VIP_DAYS",
+    "30"
+).strip()
+
+CARD_NUMBER = os.getenv(
+    "CARD_NUMBER",
+    ""
+).strip()
+
+SUPPORT_USERNAME = os.getenv(
+    "SUPPORT_USERNAME",
+    ""
+).strip().replace("@", "")
+
+ADMIN_ID = os.getenv(
+    "ADMIN_ID",
+    ""
+).strip()
+
+
+# =========================================================
+# REQUIRED ENV CHECK
+# =========================================================
+
+if not TOKEN:
+    raise RuntimeError(
+        "❌ ENV با نام TOKEN تنظیم نشده است."
     )
-except ImportError:
 
-    def init_db():
-        pass
-
-    def add_user(user_id, username=""):
-        pass
-
-    def get_user(user_id):
-        return None
-
-    def update_activity(user_id):
-        pass
-
-    def count_users():
-        return 0
-
-    def count_purchases():
-        return 0
-
-    def total_income():
-        return 0
-
-    def set_vip(user_id, expire_date):
-        pass
-
-    def add_purchase(user_id, amount):
-        pass
-
-
-try:
-    from subscription import check_access
-except ImportError:
-
-    def check_access(user_id):
-        return True, "OK"
+if not CHANNEL_USERNAME:
+    raise RuntimeError(
+        "❌ ENV با نام CHANNEL_USERNAME تنظیم نشده است."
+    )
 
 
 # =========================================================
@@ -91,97 +85,26 @@ except ImportError:
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s",
+    format=(
+        "%(asctime)s | "
+        "%(levelname)s | "
+        "%(name)s | "
+        "%(message)s"
+    )
 )
 
 logger = logging.getLogger("SaaS")
 
 
 # =========================================================
-# ENVIRONMENT VARIABLES
-# =========================================================
-
-TOKEN = (
-    os.getenv("TOKEN")
-    or os.getenv("BOT_TOKEN")
-    or BOT_TOKEN
-    or ""
-).strip()
-
-if not TOKEN:
-    raise ValueError(
-        "TOKEN تنظیم نشده! "
-        "در Render یک Environment Variable با نام TOKEN بساز."
-    )
-
-
-# کانال اصلی
-CHANNEL_USERNAME = os.getenv(
-    "CHANNEL_USERNAME",
-    ""
-).strip()
-
-
-# کانال دوم - اختیاری
-CHANNEL_2_USERNAME = os.getenv(
-    "CHANNEL_2_USERNAME",
-    ""
-).strip()
-
-
-# لینک مستقیم کانال اول - اختیاری
-CHANNEL_LINK = os.getenv(
-    "CHANNEL_LINK",
-    ""
-).strip()
-
-
-# لینک مستقیم کانال دوم - اختیاری
-CHANNEL_2_LINK = os.getenv(
-    "CHANNEL_2_LINK",
-    ""
-).strip()
-
-
-# قیمت VIP
-VIP_PRICE = os.getenv(
-    "VIP_PRICE",
-    "199000"
-).strip()
-
-
-# مدت VIP برحسب روز
-VIP_DAYS = int(
-    os.getenv(
-        "VIP_DAYS",
-        "30"
-    ) or "30"
-)
-
-
-# شماره کارت
-CARD_NUMBER = os.getenv(
-    "CARD_NUMBER",
-    ""
-).strip()
-
-
-# یوزرنیم پشتیبانی
-SUPPORT_USERNAME = os.getenv(
-    "SUPPORT_USERNAME",
-    ""
-).strip().replace("@", "")
-
-
-# =========================================================
-# BOT / DISPATCHER
+# BOT
 # =========================================================
 
 bot = Bot(
     token=TOKEN,
     default=DefaultBotProperties(
         parse_mode=ParseMode.HTML
-    ),
+    )
 )
 
 dp = Dispatcher()
@@ -199,7 +122,7 @@ class ToolState(StatesGroup):
     post_idea = State()
     hashtag = State()
     title = State()
-    ad = State()
+    advertisement = State()
     announcement = State()
 
     # Group
@@ -208,10 +131,9 @@ class ToolState(StatesGroup):
     poll = State()
     faq = State()
 
-    # Profile / Instagram
+    # Instagram / profile
     bio = State()
-    insta_caption = State()
-    insta_idea = State()
+    instagram_caption = State()
 
     # Text
     rewrite = State()
@@ -219,14 +141,14 @@ class ToolState(StatesGroup):
     product = State()
 
     # Content
-    plan = State()
+    content_plan = State()
 
     # VIP
     vip_payment = State()
 
 
 # =========================================================
-# SAFE TEXT FUNCTIONS
+# TEXT HELPERS
 # =========================================================
 
 def clean_text(
@@ -240,30 +162,16 @@ def clean_text(
     text = str(text).strip()
 
     if len(text) > limit:
-        text = text[:limit] + "..."
+        return text[:limit] + "..."
 
     return text
 
 
-def escape_html(text: str) -> str:
+def username_without_at(
+    username: str
+) -> str:
 
-    if not text:
-        return ""
-
-    return (
-        str(text)
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-    )
-
-
-def get_username(message: Message) -> str:
-
-    if message.from_user.username:
-        return "@" + message.from_user.username
-
-    return str(message.from_user.id)
+    return str(username or "").strip().replace("@", "")
 
 
 # =========================================================
@@ -277,7 +185,7 @@ def main_menu():
 
             [
                 InlineKeyboardButton(
-                    text="🧠 ابزارها",
+                    text="🛠 ابزارها",
                     callback_data="tools"
                 )
             ],
@@ -287,7 +195,6 @@ def main_menu():
                     text="⭐ خرید VIP",
                     callback_data="vip"
                 ),
-
                 InlineKeyboardButton(
                     text="👤 حساب من",
                     callback_data="account"
@@ -330,7 +237,7 @@ def tools_menu():
 
             [
                 InlineKeyboardButton(
-                    text="📸 ابزارهای اینستاگرام",
+                    text="📸 اینستاگرام / پیج",
                     callback_data="insta_tools"
                 )
             ],
@@ -344,14 +251,14 @@ def tools_menu():
 
             [
                 InlineKeyboardButton(
-                    text="📅 برنامه‌ریزی محتوا",
+                    text="📅 برنامه محتوا",
                     callback_data="content_tools"
                 )
             ],
 
             [
                 InlineKeyboardButton(
-                    text="🔙 منوی اصلی",
+                    text="🔙 بازگشت",
                     callback_data="back_main"
                 )
             ]
@@ -373,8 +280,10 @@ def channel_tools_menu():
                 InlineKeyboardButton(
                     text="✍️ ساخت کپشن",
                     callback_data="tool_caption"
-                ),
+                )
+            ],
 
+            [
                 InlineKeyboardButton(
                     text="🎬 کپشن ویدیو",
                     callback_data="tool_video_caption"
@@ -385,10 +294,12 @@ def channel_tools_menu():
                 InlineKeyboardButton(
                     text="💡 ایده پست",
                     callback_data="tool_post_idea"
-                ),
+                )
+            ],
 
+            [
                 InlineKeyboardButton(
-                    text="🏷 هشتگ ساز",
+                    text="🏷 هشتگ‌ساز",
                     callback_data="tool_hashtag"
                 )
             ],
@@ -397,8 +308,10 @@ def channel_tools_menu():
                 InlineKeyboardButton(
                     text="📰 عنوان پست",
                     callback_data="tool_title"
-                ),
+                )
+            ],
 
+            [
                 InlineKeyboardButton(
                     text="📢 متن تبلیغ",
                     callback_data="tool_ad"
@@ -441,14 +354,14 @@ def group_tools_menu():
 
             [
                 InlineKeyboardButton(
-                    text="🗣 پاسخ به کاربر",
+                    text="🗣 ساخت پاسخ",
                     callback_data="tool_reply"
                 )
             ],
 
             [
                 InlineKeyboardButton(
-                    text="📢 اطلاعیه گروه",
+                    text="📢 متن اطلاعیه گروه",
                     callback_data="tool_announcement"
                 )
             ],
@@ -489,22 +402,22 @@ def insta_tools_menu():
 
             [
                 InlineKeyboardButton(
-                    text="📝 کپشن اینستاگرام",
-                    callback_data="tool_insta_caption"
-                )
-            ],
-
-            [
-                InlineKeyboardButton(
-                    text="💡 ایده پست و ریلز",
-                    callback_data="tool_insta_idea"
-                )
-            ],
-
-            [
-                InlineKeyboardButton(
                     text="👤 ساخت Bio",
                     callback_data="tool_bio"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text="📸 کپشن پست",
+                    callback_data="tool_instagram_caption"
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
+                    text="🎯 ایده محتوا",
+                    callback_data="tool_post_idea"
                 )
             ],
 
@@ -517,7 +430,7 @@ def insta_tools_menu():
 
             [
                 InlineKeyboardButton(
-                    text="🎯 عنوان جذاب",
+                    text="📰 عنوان جذاب",
                     callback_data="tool_title"
                 )
             ],
@@ -544,7 +457,7 @@ def text_tools_menu():
 
             [
                 InlineKeyboardButton(
-                    text="✏️ بازنویسی حرفه‌ای",
+                    text="✏️ بازنویسی متن",
                     callback_data="tool_rewrite"
                 )
             ],
@@ -606,7 +519,7 @@ def content_tools_menu():
 
             [
                 InlineKeyboardButton(
-                    text="💡 ایده‌های محتوا",
+                    text="💡 ایده‌های محتوایی",
                     callback_data="tool_post_idea"
                 )
             ],
@@ -615,13 +528,6 @@ def content_tools_menu():
                 InlineKeyboardButton(
                     text="🎯 عنوان‌های جذاب",
                     callback_data="tool_title"
-                )
-            ],
-
-            [
-                InlineKeyboardButton(
-                    text="📢 ایده تبلیغاتی",
-                    callback_data="tool_ad"
                 )
             ],
 
@@ -637,10 +543,10 @@ def content_tools_menu():
 
 
 # =========================================================
-# BACK MENUS
+# BACK BUTTONS
 # =========================================================
 
-def back_main_menu():
+def back_main_keyboard():
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -654,7 +560,7 @@ def back_main_menu():
     )
 
 
-def back_tools_menu():
+def back_tools_keyboard():
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -669,199 +575,40 @@ def back_tools_menu():
 
 
 # =========================================================
-# REQUIRED CHANNEL CHECK
-# =========================================================
-
-def normalize_channel(value: str) -> str:
-
-    value = (value or "").strip()
-
-    if not value:
-        return ""
-
-    if value.startswith("https://t.me/"):
-        value = value.replace(
-            "https://t.me/",
-            ""
-        )
-
-    if value.startswith("http://t.me/"):
-        value = value.replace(
-            "http://t.me/",
-            ""
-        )
-
-    if value.startswith("t.me/"):
-        value = value.replace(
-            "t.me/",
-            ""
-        )
-
-    return value
-
-
-CHANNEL_USERNAME = normalize_channel(
-    CHANNEL_USERNAME
-)
-
-CHANNEL_2_USERNAME = normalize_channel(
-    CHANNEL_2_USERNAME
-)
-
-
-async def is_member(
-    channel: str,
-    user_id: int
-) -> bool:
-
-    if not channel:
-        return True
-
-    try:
-
-        member = await bot.get_chat_member(
-            chat_id="@" + channel.lstrip("@"),
-            user_id=user_id
-        )
-
-        return member.status in (
-            "member",
-            "administrator",
-            "creator"
-        )
-
-    except Exception as e:
-
-        logger.warning(
-            "Channel membership check failed: %s | %s",
-            channel,
-            e
-        )
-
-        return False
-
-
-async def check_channels(
-    user_id: int
-) -> bool:
-
-    first = await is_member(
-        CHANNEL_USERNAME,
-        user_id
-    )
-
-    if not first:
-        return False
-
-    second = await is_member(
-        CHANNEL_2_USERNAME,
-        user_id
-    )
-
-    return second
-
-
-# =========================================================
-# JOIN KEYBOARD
+# CHANNEL JOIN KEYBOARD
 # =========================================================
 
 def join_keyboard():
 
-    rows = []
-
-    link1 = CHANNEL_LINK
-
-    if not link1 and CHANNEL_USERNAME:
-        link1 = (
-            "https://t.me/"
-            + CHANNEL_USERNAME.lstrip("@")
-        )
-
-    link2 = CHANNEL_2_LINK
-
-    if not link2 and CHANNEL_2_USERNAME:
-        link2 = (
-            "https://t.me/"
-            + CHANNEL_2_USERNAME.lstrip("@")
-        )
-
-    if link1:
-
-        rows.append([
-            InlineKeyboardButton(
-                text="📢 عضویت کانال اول",
-                url=link1
-            )
-        ])
-
-    if link2:
-
-        rows.append([
-            InlineKeyboardButton(
-                text="📢 عضویت کانال دوم",
-                url=link2
-            )
-        ])
-
-    rows.append([
-        InlineKeyboardButton(
-            text="✅ بررسی عضویت",
-            callback_data="check_join"
-        )
-    ])
-
-    return InlineKeyboardMarkup(
-        inline_keyboard=rows
+    username = username_without_at(
+        CHANNEL_USERNAME
     )
 
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
 
-# =========================================================
-# ACCESS CHECK
-# =========================================================
+            [
+                InlineKeyboardButton(
+                    text="📢 عضویت در کانال",
+                    url=f"https://t.me/{username}"
+                )
+            ],
 
-async def user_has_access(
-    user_id: int
-) -> bool:
+            [
+                InlineKeyboardButton(
+                    text="✅ بررسی عضویت",
+                    callback_data="check_join"
+                )
+            ]
 
-    if not await check_channels(user_id):
-        return False
-
-    try:
-
-        result = check_access(user_id)
-
-        if isinstance(result, tuple):
-            return bool(result[0])
-
-        return bool(result)
-
-    except Exception as e:
-
-        logger.exception(
-            "Access check failed: %s",
-            e
-        )
-
-        return False
-
-
-# =========================================================
-# INIT DATABASE
-# =========================================================
-
-try:
-    init_db()
-    logger.info("Database initialized successfully.")
-except Exception as e:
-    logger.exception(
-        "Database initialization failed: %s",
-        e
+        ]
     )
 
 
 # =========================================================
 # END OF PART 1/5
-# =========================================================ت
+# =========================================================
+
 # =========================================================
 # bot.py — PART 2/5
 # KEYBOARDS + REQUIRED CHANNELS + MAIN MENU
