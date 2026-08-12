@@ -26,7 +26,10 @@ from aiogram.client.default import DefaultBotProperties
 # ENVIRONMENT VARIABLES
 # =========================================================
 
-TOKEN = os.getenv("TOKEN", "").strip()
+TOKEN = os.getenv("TOKEN") or os.getenv("BOT_TOKEN")
+
+if not TOKEN:
+    raise RuntimeError("❌ TOKEN یا BOT_TOKEN در Render تنظیم نشده است.")
 
 CHANNEL_USERNAME = os.getenv(
     "CHANNEL_USERNAME",
